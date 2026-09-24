@@ -54,6 +54,14 @@ max-complexity = 8
 "datetime.date.today".msg = "Take `today` as an argument or use the injected clock."
 "time.time".msg = "Take the time as an argument or use the injected clock."
 "time.time_ns".msg = "Take the time as an argument or use the injected clock."
+"time.monotonic".msg = "Take the time as an argument or use the injected clock."
+"time.gmtime".msg = "Take the time as an argument or use the injected clock."
+"time.localtime".msg = "Take the time as an argument or use the injected clock."
+"uuid.uuid1".msg = "Take unique ids as arguments."
+"uuid.uuid4".msg = "Take unique ids as arguments."
+"random".msg = "Take random values as arguments."
+"secrets".msg = "Take random values as arguments."
+"os.urandom".msg = "Take random values as arguments."
 
 [tool.mypy]
 python_version = "3.12"

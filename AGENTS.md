@@ -16,16 +16,18 @@ uv run ruff format --check . && uv run ruff check . && uv run mypy && uv build
 | Path | Contents |
 |---|---|
 | `src/pyarca/` | The published package |
+| `docs/adr/` | Architecture decision records |
 | `.github/workflows/ci.yml` | CI, mirroring the verification command |
 
 ## Architecture
 
-Functional core, imperative shell:
+Functional core, imperative shell ([ADR 0001](docs/adr/0001-functional-core-imperative-shell.md)):
 
 - The core builds request bytes and parses response bytes into typed values. It performs no I/O
   and reads no clock.
 - The shell (the client) owns I/O: HTTP, signing keys, token storage, time.
-- Dependencies the core needs arrive through `typing.Protocol` ports.
+- The core takes plain values. What the shell needs from outside (HTTP, clock, token storage,
+  signing) arrives through `typing.Protocol` ports.
 
 ## Conventions
 
