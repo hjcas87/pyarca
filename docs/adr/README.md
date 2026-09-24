@@ -12,3 +12,4 @@ consequences.
 |---|---|---|
 | [0001](0001-functional-core-imperative-shell.md) | Functional core, imperative shell | accepted |
 | [0002](0002-decimal-amounts-without-silent-rounding.md) | Decimal amounts without silent rounding | accepted |
+| [0003](0003-soap-without-zeep.md) | SOAP without zeep | accepted |
