@@ -2,6 +2,7 @@
 name = "pyarca"
 version = "0.0.0"
 description = "Framework-agnostic Python client for ARCA (ex AFIP) electronic invoicing"
+readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
