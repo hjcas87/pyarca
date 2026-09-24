@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Tooling
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.hypothesis/
+
+# Secrets: ARCA certificates and keys never belong in the repo
+*.crt
+*.key
+*.pem
+*.p12
+.env
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
