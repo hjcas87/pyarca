@@ -1,0 +1,70 @@
+[project]
+name = "pyarca"
+version = "0.0.0"
+description = "Framework-agnostic Python client for ARCA (ex AFIP) electronic invoicing"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = []
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.18,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+required-version = ">=0.12.18,<0.13.0"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "COM812", # conflicts with ruff format
+    "CPY001", # LICENSE covers the repository
+    "EM101",  # a typed exception carries identity; the message variable dance adds nothing
+    "EM102",
+    "FIX002", # a TODO is allowed when it links an issue (TD003 still enforces the link)
+    "TD002",  # no author names in code; the issue has the owner
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.pylint]
+max-branches = 8
+max-returns = 6
+max-statements = 30
+max-args = 5
+
+[tool.ruff.lint.mccabe]
+max-complexity = 8
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"datetime.datetime.now".msg = "Take `now` as an argument or use the injected clock."
+"datetime.datetime.utcnow".msg = "Take `now` as an argument or use the injected clock."
+"datetime.datetime.today".msg = "Take `now` as an argument or use the injected clock."
+"datetime.date.today".msg = "Take `today` as an argument or use the injected clock."
+"time.time".msg = "Take the time as an argument or use the injected clock."
+"time.time_ns".msg = "Take the time as an argument or use the injected clock."
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+mypy_path = "src"
+explicit_package_bases = true
+strict = true
+warn_unreachable = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.1",
+    "ruff>=0.16.9",
+]
