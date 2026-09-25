@@ -14,3 +14,4 @@ consequences.
 | [0002](0002-decimal-amounts-without-silent-rounding.md) | Decimal amounts without silent rounding | accepted |
 | [0003](0003-soap-without-zeep.md) | SOAP without zeep | accepted |
 | [0004](0004-voucher-authorization-recovery.md) | Voucher authorization is never retried blindly | accepted |
+| [0005](0005-access-ticket-reuse.md) | The access ticket is reused until ARCA says it expires | accepted |
