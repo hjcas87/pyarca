@@ -1,11 +1,14 @@
 """Requests and responses of WSAA, ARCA's authentication service."""
 
+import base64
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
 from lxml import etree
 
 LOGIN_TICKET_REQUEST_VERSION = "1.0"
+SOAP_ENVELOPE_NAMESPACE = "http://schemas.xmlsoap.org/soap/envelope/"
+WSAA_NAMESPACE = "http://wsaa.view.sua.dvadac.desein.afip.gov"
 MAX_UNIQUE_ID = 2**32 - 1
 
 # WSAA rejects a request generated after its own current time, so the generation time is set
@@ -69,6 +72,26 @@ def build_login_ticket_request(*, service: Service, unique_id: int, now: datetim
     etree.SubElement(header, "expirationTime").text = _format_time(now_utc + REQUEST_LIFETIME)
     etree.SubElement(root, "service").text = service
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8")
+
+
+def build_login_cms_request(signed_request: bytes) -> bytes:
+    """Build the SOAP request for WSAA `loginCms`.
+
+    Args:
+        signed_request: The login ticket request signed as CMS, in DER.
+
+    Returns:
+        The SOAP envelope as UTF-8 XML bytes.
+    """
+    envelope = etree.Element(
+        etree.QName(SOAP_ENVELOPE_NAMESPACE, "Envelope"),
+        nsmap={"soapenv": SOAP_ENVELOPE_NAMESPACE, "wsaa": WSAA_NAMESPACE},
+    )
+    body = etree.SubElement(envelope, etree.QName(SOAP_ENVELOPE_NAMESPACE, "Body"))
+    login = etree.SubElement(body, etree.QName(WSAA_NAMESPACE, "loginCms"))
+    signed_request_text = base64.b64encode(signed_request).decode("ascii")
+    etree.SubElement(login, etree.QName(WSAA_NAMESPACE, "in0")).text = signed_request_text
+    return etree.tostring(envelope, xml_declaration=True, encoding="UTF-8")
 
 
 def _format_time(value: datetime) -> str:
