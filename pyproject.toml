@@ -70,6 +70,7 @@ max-complexity = 8
     "S101",   # assert is how pytest works
     "D",      # tests are named sentences, not documented APIs
     "INP001", # tests are not a package (importlib import mode)
+    "S106",   # fixture tokens are sample data, not credentials
 ]
 
 [tool.mypy]

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone, tzinfo
+from pathlib import Path
 from typing import override
 from zoneinfo import ZoneInfo
 
@@ -7,14 +8,21 @@ from lxml import etree
 
 from pyarca.core.wsaa import (
     MAX_UNIQUE_ID,
+    AccessTicket,
+    MalformedResponseError,
     NaiveTimeError,
+    ResponseDefect,
     Service,
     UniqueIdOutOfRangeError,
     build_login_cms_request,
     build_login_ticket_request,
+    parse_login_cms_response,
 )
 
 BUENOS_AIRES = timezone(timedelta(hours=-3))
+# Hand-written from the example in the WSAA technical specification until a homologation
+# response is recorded.
+LOGIN_CMS_RESPONSE = (Path(__file__).parent / "fixtures/wsaa/login_cms_response.xml").read_bytes()
 
 
 class _UnknownOffset(tzinfo):
@@ -110,3 +118,52 @@ def test_login_cms_request_carries_the_signed_request_in_base64() -> None:
         b"</soapenv:Body>"
         b"</soapenv:Envelope>"
     )
+
+
+def test_login_cms_response_becomes_an_access_ticket() -> None:
+    assert parse_login_cms_response(LOGIN_CMS_RESPONSE) == AccessTicket(
+        token="cES0SSuWIIPlfe5/dLtb0Qeg2jQuvYuuSEDOrz+w2EnAQiEeS86gzYf7ehiU3UaYit5FRb9z/3zq",
+        sign="a6QSSZBgLf0TTcktSNteeSg3qXsMVjo/F5py/Gtw7xucTrUWbsrVCdIoGE8Cm1bixpuVPlr58k6n",
+        expires_at=datetime(2026, 9, 25, 9, 0, 2, 105000, tzinfo=BUENOS_AIRES),
+    )
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        LOGIN_CMS_RESPONSE.replace(b"loginCmsReturn", b"somethingElse"),
+        LOGIN_CMS_RESPONSE.replace(b"&lt;token&gt;", b"&lt;other&gt;").replace(
+            b"&lt;/token&gt;", b"&lt;/other&gt;"
+        ),
+    ],
+    ids=["no ticket", "ticket without token"],
+)
+def test_login_cms_response_without_a_ticket_is_rejected(response: bytes) -> None:
+    with pytest.raises(MalformedResponseError) as error:
+        parse_login_cms_response(response)
+
+    assert error.value.defect == ResponseDefect.MISSING_ELEMENT
+
+
+def test_login_cms_response_with_a_document_type_declaration_is_rejected(tmp_path: Path) -> None:
+    secret = tmp_path / "secret.txt"
+    secret.write_text("private key")
+    response = (
+        b'<?xml version="1.0"?>'
+        b'<!DOCTYPE envelope [<!ENTITY leak SYSTEM "'
+        + secret.as_uri().encode()
+        + b'">]>'
+        + LOGIN_CMS_RESPONSE.split(b"?>", 1)[1].replace(b"<soapenv:Body>", b"<soapenv:Body>&leak;")
+    )
+
+    with pytest.raises(MalformedResponseError) as error:
+        parse_login_cms_response(response)
+
+    assert error.value.defect == ResponseDefect.DOCUMENT_TYPE
+
+
+def test_login_cms_response_cut_short_is_rejected() -> None:
+    with pytest.raises(MalformedResponseError) as error:
+        parse_login_cms_response(LOGIN_CMS_RESPONSE[:200])
+
+    assert error.value.defect == ResponseDefect.NOT_XML

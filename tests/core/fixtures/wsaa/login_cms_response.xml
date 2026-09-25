@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <loginCmsResponse xmlns="http://wsaa.view.sua.dvadac.desein.afip.gov">
+      <loginCmsReturn>&lt;?xml version="1.0" encoding="UTF-8" standalone="yes"?&gt;
+&lt;loginTicketResponse version="1.0"&gt;
+  &lt;header&gt;
+    &lt;source&gt;cn=wsaa,o=afip,c=ar,serialNumber=CUIT 33693450239&lt;/source&gt;
+    &lt;destination&gt;cn=srv1,ou=facturacion,o=empresa s.a.,c=ar,serialNumber=CUIT 30123456789&lt;/destination&gt;
+    &lt;uniqueId&gt;383953094&lt;/uniqueId&gt;
+    &lt;generationTime&gt;2026-09-24T21:00:02.105-03:00&lt;/generationTime&gt;
+    &lt;expirationTime&gt;2026-09-25T09:00:02.105-03:00&lt;/expirationTime&gt;
+  &lt;/header&gt;
+  &lt;credentials&gt;
+    &lt;token&gt;cES0SSuWIIPlfe5/dLtb0Qeg2jQuvYuuSEDOrz+w2EnAQiEeS86gzYf7ehiU3UaYit5FRb9z/3zq&lt;/token&gt;
+    &lt;sign&gt;a6QSSZBgLf0TTcktSNteeSg3qXsMVjo/F5py/Gtw7xucTrUWbsrVCdIoGE8Cm1bixpuVPlr58k6n&lt;/sign&gt;
+  &lt;/credentials&gt;
+&lt;/loginTicketResponse&gt;
+</loginCmsReturn>
+    </loginCmsResponse>
+  </soapenv:Body>
+</soapenv:Envelope>
