@@ -10,6 +10,7 @@ from pyarca.core.wsaa import (
     NaiveTimeError,
     Service,
     UniqueIdOutOfRangeError,
+    build_login_cms_request,
     build_login_ticket_request,
 )
 
@@ -95,3 +96,17 @@ def test_login_ticket_request_window_is_measured_in_real_time_across_a_dst_chang
     expiration = datetime.fromisoformat(request.findtext("header/expirationTime", default=""))
     assert now - generation == timedelta(minutes=10)
     assert expiration - now == timedelta(minutes=10)
+
+
+def test_login_cms_request_carries_the_signed_request_in_base64() -> None:
+    assert build_login_cms_request(b"signed") == (
+        b"<?xml version='1.0' encoding='UTF-8'?>\n"
+        b'<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"'
+        b' xmlns:wsaa="http://wsaa.view.sua.dvadac.desein.afip.gov">'
+        b"<soapenv:Body>"
+        b"<wsaa:loginCms>"
+        b"<wsaa:in0>c2lnbmVk</wsaa:in0>"
+        b"</wsaa:loginCms>"
+        b"</soapenv:Body>"
+        b"</soapenv:Envelope>"
+    )
