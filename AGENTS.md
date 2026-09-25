@@ -8,7 +8,7 @@ Run before every commit. CI runs the same steps, plus `uv sync --locked` and a c
 wheel ships `py.typed`.
 
 ```bash
-uv run ruff format --check . && uv run ruff check . && uv run mypy && uv build
+uv run ruff format --check . && uv run ruff check . && uv run mypy && uv run pytest --cov && uv build
 ```
 
 ## Layout
