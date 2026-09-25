@@ -1,0 +1,69 @@
+"""Requests and responses of WSAA, ARCA's authentication service."""
+
+from datetime import datetime, timedelta
+from enum import StrEnum
+
+from lxml import etree
+
+LOGIN_TICKET_REQUEST_VERSION = "1.0"
+MAX_UNIQUE_ID = 2**32 - 1
+
+# WSAA rejects a request generated after its own current time, so the window starts before `now`
+# to absorb a local clock running ahead of ARCA's.
+REQUEST_TIME_MARGIN = timedelta(minutes=10)
+
+
+class Service(StrEnum):
+    """ARCA business web services an access ticket can be requested for."""
+
+    WSFE = "wsfe"
+
+
+class NaiveTimeError(ValueError):
+    """A time without timezone reached a request; ARCA rejects times without offset."""
+
+    def __init__(self) -> None:
+        """Build the error."""
+        super().__init__("the time must carry a timezone")
+
+
+class UniqueIdOutOfRangeError(ValueError):
+    """The login ticket request id does not fit in 32 unsigned bits."""
+
+    def __init__(self, unique_id: int) -> None:
+        """Build the error for the rejected id."""
+        super().__init__(f"unique_id must fit in 32 unsigned bits, got {unique_id}")
+        self.unique_id = unique_id
+
+
+def build_login_ticket_request(*, service: Service, unique_id: int, now: datetime) -> bytes:
+    """Build the login ticket request (TRA) that is signed and sent to WSAA.
+
+    Args:
+        service: The web service the access ticket is for.
+        unique_id: Unsigned 32-bit id that, with the generation time, identifies the request.
+        now: The current time, timezone-aware.
+
+    Returns:
+        The request as UTF-8 XML bytes.
+
+    Raises:
+        NaiveTimeError: If `now` has no timezone.
+        UniqueIdOutOfRangeError: If `unique_id` does not fit in 32 unsigned bits.
+    """
+    if now.tzinfo is None:
+        raise NaiveTimeError
+    if not 0 <= unique_id <= MAX_UNIQUE_ID:
+        raise UniqueIdOutOfRangeError(unique_id)
+
+    root = etree.Element("loginTicketRequest", version=LOGIN_TICKET_REQUEST_VERSION)
+    header = etree.SubElement(root, "header")
+    etree.SubElement(header, "uniqueId").text = str(unique_id)
+    etree.SubElement(header, "generationTime").text = _format_time(now - REQUEST_TIME_MARGIN)
+    etree.SubElement(header, "expirationTime").text = _format_time(now + REQUEST_TIME_MARGIN)
+    etree.SubElement(root, "service").text = service
+    return etree.tostring(root, xml_declaration=True, encoding="UTF-8")
+
+
+def _format_time(value: datetime) -> str:
+    return value.isoformat(timespec="seconds")

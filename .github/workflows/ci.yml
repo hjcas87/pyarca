@@ -25,6 +25,7 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run ruff check .
       - run: uv run mypy
+      - run: uv run pytest --cov
       - run: uv build
       - name: Wheel ships the py.typed marker
         run: unzip -l dist/*.whl | grep -q 'pyarca/py.typed'
