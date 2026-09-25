@@ -8,9 +8,13 @@ from lxml import etree
 LOGIN_TICKET_REQUEST_VERSION = "1.0"
 MAX_UNIQUE_ID = 2**32 - 1
 
-# WSAA rejects a request generated after its own current time, so the window starts before `now`
-# to absorb a local clock running ahead of ARCA's.
-REQUEST_TIME_MARGIN = timedelta(minutes=10)
+# WSAA rejects a request generated after its own current time, so the generation time is set
+# before `now` to absorb a local clock running ahead of ARCA's.
+CLOCK_SKEW_MARGIN = timedelta(minutes=10)
+
+# Anyone holding a signed request can exchange it for an access ticket until it expires, so it
+# lives only long enough to reach WSAA.
+REQUEST_LIFETIME = timedelta(minutes=10)
 
 
 class Service(StrEnum):
@@ -48,10 +52,10 @@ def build_login_ticket_request(*, service: Service, unique_id: int, now: datetim
         The request as UTF-8 XML bytes.
 
     Raises:
-        NaiveTimeError: If `now` has no timezone.
+        NaiveTimeError: If `now` has no UTC offset.
         UniqueIdOutOfRangeError: If `unique_id` does not fit in 32 unsigned bits.
     """
-    if now.tzinfo is None:
+    if now.utcoffset() is None:
         raise NaiveTimeError
     if not 0 <= unique_id <= MAX_UNIQUE_ID:
         raise UniqueIdOutOfRangeError(unique_id)
@@ -59,8 +63,8 @@ def build_login_ticket_request(*, service: Service, unique_id: int, now: datetim
     root = etree.Element("loginTicketRequest", version=LOGIN_TICKET_REQUEST_VERSION)
     header = etree.SubElement(root, "header")
     etree.SubElement(header, "uniqueId").text = str(unique_id)
-    etree.SubElement(header, "generationTime").text = _format_time(now - REQUEST_TIME_MARGIN)
-    etree.SubElement(header, "expirationTime").text = _format_time(now + REQUEST_TIME_MARGIN)
+    etree.SubElement(header, "generationTime").text = _format_time(now - CLOCK_SKEW_MARGIN)
+    etree.SubElement(header, "expirationTime").text = _format_time(now + REQUEST_LIFETIME)
     etree.SubElement(root, "service").text = service
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8")
 
