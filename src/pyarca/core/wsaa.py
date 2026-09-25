@@ -1,6 +1,7 @@
 """Requests and responses of WSAA, ARCA's authentication service."""
 
 import base64
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
@@ -34,6 +35,24 @@ class NaiveTimeError(ValueError):
         super().__init__("the time must carry a timezone")
 
 
+class ResponseDefect(StrEnum):
+    """Why a response was rejected before reading its content."""
+
+    NOT_XML = "not_xml"
+    DOCUMENT_TYPE = "document_type"
+    MISSING_ELEMENT = "missing_element"
+
+
+class MalformedResponseError(ValueError):
+    """A response does not have the structure the service documents."""
+
+    def __init__(self, defect: ResponseDefect, element: str | None = None) -> None:
+        """Build the error for a defect, naming the missing element when there is one."""
+        super().__init__(defect if element is None else f"{defect}: {element}")
+        self.defect = defect
+        self.element = element
+
+
 class UniqueIdOutOfRangeError(ValueError):
     """The login ticket request id does not fit in 32 unsigned bits."""
 
@@ -41,6 +60,15 @@ class UniqueIdOutOfRangeError(ValueError):
         """Build the error for the rejected id."""
         super().__init__(f"unique_id must fit in 32 unsigned bits, got {unique_id}")
         self.unique_id = unique_id
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AccessTicket:
+    """Credentials WSAA issues for one service, valid until `expires_at`."""
+
+    token: str
+    sign: str
+    expires_at: datetime
 
 
 def build_login_ticket_request(*, service: Service, unique_id: int, now: datetime) -> bytes:
@@ -92,6 +120,50 @@ def build_login_cms_request(signed_request: bytes) -> bytes:
     signed_request_text = base64.b64encode(signed_request).decode("ascii")
     etree.SubElement(login, etree.QName(WSAA_NAMESPACE, "in0")).text = signed_request_text
     return etree.tostring(envelope, xml_declaration=True, encoding="UTF-8")
+
+
+def parse_login_cms_response(response: bytes) -> AccessTicket:
+    """Read the access ticket out of a WSAA `loginCms` response.
+
+    Args:
+        response: The SOAP response body as returned by WSAA.
+
+    Returns:
+        The access ticket, expiring when WSAA says it does.
+
+    Raises:
+        MalformedResponseError: If the response is not a well-formed login ticket response.
+    """
+    envelope = _parse_xml(response)
+    login_ticket = envelope.findtext(f".//{{{WSAA_NAMESPACE}}}loginCmsReturn")
+    if login_ticket is None:
+        raise MalformedResponseError(ResponseDefect.MISSING_ELEMENT, "loginCmsReturn")
+
+    ticket = _parse_xml(login_ticket.encode())
+    return AccessTicket(
+        token=_required_text(ticket, "credentials/token"),
+        sign=_required_text(ticket, "credentials/sign"),
+        expires_at=datetime.fromisoformat(_required_text(ticket, "header/expirationTime")),
+    )
+
+
+def _parse_xml(document: bytes) -> etree._Element:
+    parser = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False)
+    try:
+        root = etree.fromstring(document, parser=parser)
+    except etree.XMLSyntaxError as error:
+        raise MalformedResponseError(ResponseDefect.NOT_XML) from error
+    # SOAP 1.1 forbids document type declarations; one in a response can only be an attack.
+    if root.getroottree().docinfo.doctype:
+        raise MalformedResponseError(ResponseDefect.DOCUMENT_TYPE)
+    return root
+
+
+def _required_text(element: etree._Element, path: str) -> str:
+    text = element.findtext(path)
+    if text is None:
+        raise MalformedResponseError(ResponseDefect.MISSING_ELEMENT, path)
+    return text
 
 
 def _format_time(value: datetime) -> str:
