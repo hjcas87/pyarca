@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta, timezone, tzinfo
 from typing import override
+from zoneinfo import ZoneInfo
 
 import pytest
+from lxml import etree
 
 from pyarca.core.wsaa import (
     MAX_UNIQUE_ID,
@@ -40,8 +42,8 @@ def test_login_ticket_request_asks_for_the_service_in_a_window_around_now() -> N
         b'<loginTicketRequest version="1.0">'
         b"<header>"
         b"<uniqueId>4325399</uniqueId>"
-        b"<generationTime>2026-09-24T20:50:00-03:00</generationTime>"
-        b"<expirationTime>2026-09-24T21:10:00-03:00</expirationTime>"
+        b"<generationTime>2026-09-24T23:50:00+00:00</generationTime>"
+        b"<expirationTime>2026-09-25T00:10:00+00:00</expirationTime>"
         b"</header>"
         b"<service>wsfe</service>"
         b"</loginTicketRequest>"
@@ -80,3 +82,16 @@ def test_login_ticket_request_accepts_the_edges_of_the_32_bit_range(unique_id: i
     )
 
     assert f"<uniqueId>{unique_id}</uniqueId>".encode() in request
+
+
+def test_login_ticket_request_window_is_measured_in_real_time_across_a_dst_change() -> None:
+    now = datetime(2026, 3, 8, 3, 5, tzinfo=ZoneInfo("America/New_York"))
+
+    request = etree.fromstring(
+        build_login_ticket_request(service=Service.WSFE, unique_id=4325399, now=now)
+    )
+
+    generation = datetime.fromisoformat(request.findtext("header/generationTime", default=""))
+    expiration = datetime.fromisoformat(request.findtext("header/expirationTime", default=""))
+    assert now - generation == timedelta(minutes=10)
+    assert expiration - now == timedelta(minutes=10)
