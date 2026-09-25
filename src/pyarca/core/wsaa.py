@@ -1,6 +1,6 @@
 """Requests and responses of WSAA, ARCA's authentication service."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
 from lxml import etree
@@ -60,11 +60,13 @@ def build_login_ticket_request(*, service: Service, unique_id: int, now: datetim
     if not 0 <= unique_id <= MAX_UNIQUE_ID:
         raise UniqueIdOutOfRangeError(unique_id)
 
+    # Arithmetic in a zone with DST moves the wall clock, not the instant; UTC has no transitions.
+    now_utc = now.astimezone(UTC)
     root = etree.Element("loginTicketRequest", version=LOGIN_TICKET_REQUEST_VERSION)
     header = etree.SubElement(root, "header")
     etree.SubElement(header, "uniqueId").text = str(unique_id)
-    etree.SubElement(header, "generationTime").text = _format_time(now - CLOCK_SKEW_MARGIN)
-    etree.SubElement(header, "expirationTime").text = _format_time(now + REQUEST_LIFETIME)
+    etree.SubElement(header, "generationTime").text = _format_time(now_utc - CLOCK_SKEW_MARGIN)
+    etree.SubElement(header, "expirationTime").text = _format_time(now_utc + REQUEST_LIFETIME)
     etree.SubElement(root, "service").text = service
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8")
 
