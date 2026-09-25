@@ -27,6 +27,45 @@ class Service(StrEnum):
     WSFE = "wsfe"
 
 
+class WsaaFaultCode(StrEnum):
+    """Fault codes documented in the WSAA technical specification."""
+
+    NOT_AUTHORIZED = "coe.notAuthorized"
+    ALREADY_AUTHENTICATED = "coe.alreadyAuthenticated"
+    CMS_INVALID = "cms.bad"
+    CMS_BASE64_INVALID = "cms.bad.base64"
+    CERTIFICATE_NOT_FOUND = "cms.cert.notFound"
+    SIGNATURE_INVALID = "cms.sign.invalid"
+    CERTIFICATE_EXPIRED = "cms.cert.expired"
+    CERTIFICATE_NOT_YET_VALID = "cms.cert.invalid"
+    CERTIFICATE_UNTRUSTED = "cms.cert.untrusted"
+    XML_INVALID = "xml.bad"
+    SOURCE_INVALID = "xml.source.invalid"
+    DESTINATION_INVALID = "xml.destination.invalid"
+    VERSION_NOT_SUPPORTED = "xml.version.notSupported"
+    GENERATION_TIME_INVALID = "xml.generationTime.invalid"
+    REQUEST_EXPIRED = "xml.expirationTime.expired"
+    EXPIRATION_TIME_INVALID = "xml.expirationTime.invalid"
+    SERVICE_UNAVAILABLE = "wsn.unavailable"
+    SERVICE_NOT_FOUND = "wsn.notFound"
+    WSAA_UNAVAILABLE = "wsaa.unavailable"
+    WSAA_INTERNAL_ERROR = "wsaa.internalError"
+
+
+class WsaaFaultError(Exception):
+    """WSAA refused the login with a SOAP fault."""
+
+    def __init__(self, *, code: str, description: str) -> None:
+        """Build the error from the fault code and ARCA's description.
+
+        `code` is a plain string because ARCA adds codes without notice; documented ones compare
+        equal to `WsaaFaultCode` members.
+        """
+        super().__init__(code)
+        self.code = code
+        self.description = description
+
+
 class NaiveTimeError(ValueError):
     """A time without timezone reached a request; ARCA rejects times without offset."""
 
@@ -132,9 +171,14 @@ def parse_login_cms_response(response: bytes) -> AccessTicket:
         The access ticket, expiring when WSAA says it does.
 
     Raises:
+        WsaaFaultError: If WSAA answered with a SOAP fault.
         MalformedResponseError: If the response is not a well-formed login ticket response.
     """
     envelope = _parse_xml(response)
+    fault = envelope.find(f".//{{{SOAP_ENVELOPE_NAMESPACE}}}Fault")
+    if fault is not None:
+        raise _fault_error(fault)
+
     login_ticket = envelope.findtext(f".//{{{WSAA_NAMESPACE}}}loginCmsReturn")
     if login_ticket is None:
         raise MalformedResponseError(ResponseDefect.MISSING_ELEMENT, "loginCmsReturn")
@@ -145,6 +189,13 @@ def parse_login_cms_response(response: bytes) -> AccessTicket:
         sign=_required_text(ticket, "credentials/sign"),
         expires_at=datetime.fromisoformat(_required_text(ticket, "header/expirationTime")),
     )
+
+
+def _fault_error(fault: etree._Element) -> WsaaFaultError:
+    # The fault code is a qualified name such as `ns1:coe.alreadyAuthenticated`; only its local
+    # part identifies the error.
+    code = _required_text(fault, "faultcode").rpartition(":")[2]
+    return WsaaFaultError(code=code, description=fault.findtext("faultstring", default=""))
 
 
 def _parse_xml(document: bytes) -> etree._Element:

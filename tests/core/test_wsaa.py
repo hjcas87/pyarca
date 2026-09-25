@@ -14,6 +14,8 @@ from pyarca.core.wsaa import (
     ResponseDefect,
     Service,
     UniqueIdOutOfRangeError,
+    WsaaFaultCode,
+    WsaaFaultError,
     build_login_cms_request,
     build_login_ticket_request,
     parse_login_cms_response,
@@ -22,7 +24,10 @@ from pyarca.core.wsaa import (
 BUENOS_AIRES = timezone(timedelta(hours=-3))
 # Hand-written from the example in the WSAA technical specification until a homologation
 # response is recorded.
-LOGIN_CMS_RESPONSE = (Path(__file__).parent / "fixtures/wsaa/login_cms_response.xml").read_bytes()
+FIXTURES = Path(__file__).parent / "fixtures/wsaa"
+LOGIN_CMS_RESPONSE = (FIXTURES / "login_cms_response.xml").read_bytes()
+# Shaped after the Apache Axis faults WSAA returns; the code prefix is not in ARCA's documents.
+LOGIN_CMS_FAULT = (FIXTURES / "login_cms_fault.xml").read_bytes()
 
 
 class _UnknownOffset(tzinfo):
@@ -167,3 +172,13 @@ def test_login_cms_response_cut_short_is_rejected() -> None:
         parse_login_cms_response(LOGIN_CMS_RESPONSE[:200])
 
     assert error.value.defect == ResponseDefect.NOT_XML
+
+
+def test_login_cms_fault_becomes_a_typed_error() -> None:
+    with pytest.raises(WsaaFaultError) as error:
+        parse_login_cms_response(LOGIN_CMS_FAULT)
+
+    assert error.value.code == WsaaFaultCode.ALREADY_AUTHENTICATED
+    assert error.value.description == (
+        "El CEE ya posee un TA valido para el acceso al WSN solicitado"
+    )
