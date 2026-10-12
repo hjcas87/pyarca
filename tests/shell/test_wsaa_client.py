@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from cryptography.x509 import ObjectIdentifier
 
 from pyarca.core.wsaa import (
     AccessTicket,
@@ -14,6 +15,10 @@ from pyarca.core.wsaa import (
 )
 from pyarca.shell.clock import SystemClock
 from pyarca.shell.endpoints import WSAA_ENDPOINTS, Environment
+from pyarca.shell.environment_guard import (
+    HOMOLOGATION_ISSUER,
+    CertificateEnvironmentMismatchError,
+)
 from pyarca.shell.token_store import InMemoryTokenStore, TicketKey
 from pyarca.shell.wsaa_client import TICKET_SAFETY_MARGIN, WsaaClient
 
@@ -34,6 +39,7 @@ STORED_TICKET = AccessTicket(
 @dataclass
 class FakeSigner:
     certificate_id: str = CERTIFICATE_ID
+    issuer: dict[ObjectIdentifier, str] = field(default_factory=lambda: dict(HOMOLOGATION_ISSUER))
 
     def sign(self, data: bytes) -> bytes:
         return b"signed:" + data
@@ -160,3 +166,19 @@ def test_stored_tickets_are_scoped_by_certificate_service_and_environment() -> N
 
 def test_the_system_clock_returns_an_aware_time() -> None:
     assert SystemClock().now().utcoffset() is not None
+
+
+def test_a_certificate_of_the_other_environment_is_refused_before_anything_is_sent() -> None:
+    transport = FakeTransport(response=LOGIN_CMS_RESPONSE)
+
+    with pytest.raises(CertificateEnvironmentMismatchError) as error:
+        WsaaClient(
+            signer=FakeSigner(),
+            transport=transport,
+            clock=FakeClock(),
+            token_store=InMemoryTokenStore(),
+            environment=Environment.PRODUCTION,
+        )
+
+    assert error.value.environment == Environment.PRODUCTION
+    assert transport.posts == []

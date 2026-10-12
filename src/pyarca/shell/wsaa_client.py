@@ -13,6 +13,7 @@ from pyarca.core.wsaa import (
     parse_login_cms_response,
 )
 from pyarca.shell.endpoints import WSAA_ENDPOINTS, Environment
+from pyarca.shell.environment_guard import check_certificate_environment
 from pyarca.shell.ports import Clock, Signer, TokenStore, Transport
 from pyarca.shell.token_store import TicketKey
 
@@ -35,7 +36,13 @@ class WsaaClient:
         token_store: TokenStore,
         environment: Environment,
     ) -> None:
-        """Wire the ports the login needs."""
+        """Wire the ports the login needs.
+
+        Raises:
+            CertificateEnvironmentMismatchError: If the signer's certificate belongs to the other
+                environment; nothing is sent.
+        """
+        check_certificate_environment(signer.issuer, environment)
         self._signer = signer
         self._transport = transport
         self._clock = clock

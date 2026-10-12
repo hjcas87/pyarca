@@ -43,6 +43,27 @@ def certificate(rsa_key: rsa.RSAPrivateKey) -> x509.Certificate:
     )
 
 
+@pytest.fixture(scope="session")
+def homologation_certificate(rsa_key: rsa.RSAPrivateKey) -> x509.Certificate:
+    issuer = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, "Computadores Test"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "AFIP"),
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "AR"),
+        ]
+    )
+    return (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "taxpayer")]))
+        .issuer_name(issuer)
+        .public_key(rsa_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(CERTIFICATE_VALID_FROM)
+        .not_valid_after(CERTIFICATE_VALID_UNTIL)
+        .sign(rsa_key, hashes.SHA256())
+    )
+
+
 @pytest.fixture
 def certificate_path(tmp_path: Path, certificate: x509.Certificate) -> Path:
     path = tmp_path / "certificate.crt"
