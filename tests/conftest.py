@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -6,6 +7,15 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import NameOID
+
+from pyarca.core.voucher import PESOS, PESOS_EXCHANGE_RATE, VatLine, VoucherRequest
+from pyarca.core.wsfe_codes import (
+    Concept,
+    DocumentType,
+    ReceiverVatCondition,
+    VatRate,
+    VoucherType,
+)
 
 RSA_PUBLIC_EXPONENT = 65537
 RSA_KEY_SIZE = 2048
@@ -64,3 +74,45 @@ def elliptic_key_path(tmp_path: Path) -> Path:
         )
     )
     return path
+
+
+@pytest.fixture
+def invoice_b() -> VoucherRequest:
+    return VoucherRequest(
+        point_of_sale=1,
+        voucher_type=VoucherType.INVOICE_B,
+        concept=Concept.PRODUCTS,
+        document_type=DocumentType.FINAL_CONSUMER,
+        document_number=0,
+        receiver_vat_condition=ReceiverVatCondition.FINAL_CONSUMER,
+        voucher_date=date(2026, 10, 12),
+        total=Decimal("121.00"),
+        non_taxed=Decimal(0),
+        net=Decimal("100.00"),
+        exempt=Decimal(0),
+        vat_total=Decimal("21.00"),
+        vat_lines=(VatLine(rate=VatRate.RATE_21, base=Decimal("100.00"), amount=Decimal("21.00")),),
+        currency=PESOS,
+        exchange_rate=PESOS_EXCHANGE_RATE,
+    )
+
+
+@pytest.fixture
+def invoice_c() -> VoucherRequest:
+    return VoucherRequest(
+        point_of_sale=1,
+        voucher_type=VoucherType.INVOICE_C,
+        concept=Concept.PRODUCTS,
+        document_type=DocumentType.FINAL_CONSUMER,
+        document_number=0,
+        receiver_vat_condition=ReceiverVatCondition.FINAL_CONSUMER,
+        voucher_date=date(2026, 10, 12),
+        total=Decimal("100.50"),
+        non_taxed=Decimal(0),
+        net=Decimal("100.50"),
+        exempt=Decimal(0),
+        vat_total=Decimal(0),
+        vat_lines=(),
+        currency=PESOS,
+        exchange_rate=PESOS_EXCHANGE_RATE,
+    )

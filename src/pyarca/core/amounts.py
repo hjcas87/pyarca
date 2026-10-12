@@ -64,3 +64,8 @@ def amounts_match(expected: Decimal, actual: Decimal, *, aliquots: int = 1) -> b
     return difference <= ABSOLUTE_TOLERANCE * aliquots or difference <= RELATIVE_TOLERANCE * abs(
         expected
     )
+
+
+def format_amount(value: Decimal) -> str:
+    """Write a validated amount the way ARCA reads it: exactly two decimals, no exponent."""
+    return format(value.quantize(DECIMAL_PLACES), "f")
