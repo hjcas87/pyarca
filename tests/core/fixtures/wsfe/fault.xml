@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hand-written in the shape of an ASMX SOAP 1.1 fault until one is recorded. -->
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <soap:Fault>
+      <faultcode>soap:Server</faultcode>
+      <faultstring>Server was unable to process request.</faultstring>
+    </soap:Fault>
+  </soap:Body>
+</soap:Envelope>

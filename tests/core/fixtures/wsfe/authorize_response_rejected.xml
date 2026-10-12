@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hand-written from the WSFEv1 developer manual and WSDL until a homologation response is recorded. -->
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <soap:Body>
+    <FECAESolicitarResponse xmlns="http://ar.gov.afip.dif.FEV1/">
+      <FECAESolicitarResult>
+        <FeCabResp>
+          <Cuit>20111111112</Cuit>
+          <PtoVta>1</PtoVta>
+          <CbteTipo>6</CbteTipo>
+          <FchProceso>20261012103015</FchProceso>
+          <CantReg>1</CantReg>
+          <Resultado>R</Resultado>
+          <Reproceso>N</Reproceso>
+        </FeCabResp>
+        <FeDetResp>
+          <FECAEDetResponse>
+            <Concepto>1</Concepto>
+            <DocTipo>99</DocTipo>
+            <DocNro>0</DocNro>
+            <CbteDesde>7</CbteDesde>
+            <CbteHasta>7</CbteHasta>
+            <CbteFch>20261012</CbteFch>
+            <Resultado>R</Resultado>
+            <Observaciones>
+              <Obs>
+                <Code>10048</Code>
+                <Msg>Rejection sample: ImpTotal does not match the sum of its parts.</Msg>
+              </Obs>
+            </Observaciones>
+            <CAE></CAE>
+            <CAEFchVto></CAEFchVto>
+          </FECAEDetResponse>
+        </FeDetResp>
+      </FECAESolicitarResult>
+    </FECAESolicitarResponse>
+  </soap:Body>
+</soap:Envelope>
