@@ -26,10 +26,14 @@ class WsfeOperation(StrEnum):
     AUTHORIZE = "FECAESolicitar"
     LAST_AUTHORIZED = "FECompUltimoAutorizado"
     CONSULT = "FECompConsultar"
+    PING = "FEDummy"
+    POINTS_OF_SALE = "FEParamGetPtosVenta"
+    EXCHANGE_RATE = "FEParamGetCotizacion"
+    RECEIVER_VAT_CONDITIONS = "FEParamGetCondicionIvaReceptor"
 
 
-def soap_action(operation: WsfeOperation) -> str:
-    """Return the SOAPAction ARCA expects for `operation`."""
+def soap_action(operation: StrEnum) -> str:
+    """Return the SOAPAction ARCA expects for `operation`, a member of any WSFE operation enum."""
     return f"{WSFE_NAMESPACE}{operation}"
 
 
@@ -41,16 +45,21 @@ class ArcaMessage:
     message: str
 
 
-def start_request(
-    operation: WsfeOperation, *, ticket: AccessTicket, cuit: int
-) -> tuple[etree._Element, etree._Element]:
-    """Open the SOAP envelope of an authenticated `operation` and return it with its element."""
+def start_anonymous_request(operation: StrEnum) -> tuple[etree._Element, etree._Element]:
+    """Open the SOAP envelope of an `operation` that needs no credentials."""
     envelope = etree.Element(
         etree.QName(SOAP_ENVELOPE_NAMESPACE, "Envelope"),
         nsmap={"soapenv": SOAP_ENVELOPE_NAMESPACE, "ar": WSFE_NAMESPACE},
     )
     body = etree.SubElement(envelope, etree.QName(SOAP_ENVELOPE_NAMESPACE, "Body"))
-    element = etree.SubElement(body, name(operation.value))
+    return envelope, etree.SubElement(body, name(operation.value))
+
+
+def start_request(
+    operation: StrEnum, *, ticket: AccessTicket, cuit: int
+) -> tuple[etree._Element, etree._Element]:
+    """Open the SOAP envelope of an authenticated `operation` and return it with its element."""
+    envelope, element = start_anonymous_request(operation)
     _add_auth(element, ticket=ticket, cuit=cuit)
     return envelope, element
 

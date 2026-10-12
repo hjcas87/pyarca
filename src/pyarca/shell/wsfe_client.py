@@ -1,5 +1,8 @@
 """Authorize vouchers with WSFE; no call is ever repeated on its own (ADR 0004)."""
 
+from collections.abc import Callable
+from datetime import date
+from enum import StrEnum
 from http import HTTPStatus
 
 from pyarca.core.recovery import (
@@ -8,7 +11,7 @@ from pyarca.core.recovery import (
     resolve_ambiguous,
 )
 from pyarca.core.soap import MalformedResponseError, SoapFaultError
-from pyarca.core.voucher import VoucherRequest
+from pyarca.core.voucher import VoucherClass, VoucherRequest
 from pyarca.core.wsaa import AccessTicket, Service
 from pyarca.core.wsfe import (
     AuthorizationResult,
@@ -21,6 +24,25 @@ from pyarca.core.wsfe import (
     parse_last_authorized_response,
 )
 from pyarca.core.wsfe_codes import ArcaErrorCode, VoucherType
+from pyarca.core.wsfe_parameters import (
+    ExchangeRate,
+    ParameterResult,
+    PointOfSale,
+    ReceiverVatConditionItem,
+    ReferenceItem,
+    ReferenceList,
+    ServerStatus,
+    build_exchange_rate_request,
+    build_ping_request,
+    build_points_of_sale_request,
+    build_receiver_vat_conditions_request,
+    build_reference_list_request,
+    parse_exchange_rate_response,
+    parse_ping_response,
+    parse_points_of_sale_response,
+    parse_receiver_vat_conditions_response,
+    parse_reference_list_response,
+)
 from pyarca.core.wsfe_xml import ArcaMessage, WsfeOperation, soap_action
 from pyarca.shell.endpoints import WSFE_ENDPOINTS, Environment
 from pyarca.shell.ports import TicketProvider, Transport
@@ -87,7 +109,7 @@ class RecoveryFailedError(VoucherOutcomeError):
 
 
 class WsfeClient:
-    """Asks WSFE for the last authorized voucher and authorizes the next one."""
+    """Authorizes vouchers with WSFE, looks up what it needs to do so and checks it is up."""
 
     def __init__(
         self,
@@ -154,6 +176,105 @@ class WsfeClient:
         if authorization.errors:
             raise ArcaErrorsError(authorization.errors)
         return authorization
+
+    def ping(self) -> ServerStatus:
+        """Ask WSFE whether its servers are up; this call needs no access ticket."""
+        response = self._transport.post(
+            url=WSFE_ENDPOINTS[self._environment],
+            body=build_ping_request(),
+            soap_action=soap_action(WsfeOperation.PING),
+        )
+        return parse_ping_response(response)
+
+    def voucher_types(self) -> tuple[ReferenceItem, ...]:
+        """List the voucher types WSFE accepts (`FEParamGetTiposCbte`)."""
+        return self._reference_list(ReferenceList.VOUCHER_TYPES)
+
+    def document_types(self) -> tuple[ReferenceItem, ...]:
+        """List the receiver document types WSFE accepts (`FEParamGetTiposDoc`)."""
+        return self._reference_list(ReferenceList.DOCUMENT_TYPES)
+
+    def vat_rates(self) -> tuple[ReferenceItem, ...]:
+        """List the VAT aliquots WSFE accepts (`FEParamGetTiposIva`)."""
+        return self._reference_list(ReferenceList.VAT_RATES)
+
+    def currencies(self) -> tuple[ReferenceItem, ...]:
+        """List the currencies WSFE accepts (`FEParamGetTiposMonedas`)."""
+        return self._reference_list(ReferenceList.CURRENCIES)
+
+    def optional_types(self) -> tuple[ReferenceItem, ...]:
+        """List the optional fields WSFE accepts (`FEParamGetTiposOpcional`)."""
+        return self._reference_list(ReferenceList.OPTIONAL_TYPES)
+
+    def tribute_types(self) -> tuple[ReferenceItem, ...]:
+        """List the tribute types WSFE accepts (`FEParamGetTiposTributos`)."""
+        return self._reference_list(ReferenceList.TRIBUTE_TYPES)
+
+    def receiver_vat_conditions(
+        self, *, voucher_class: VoucherClass | None = None
+    ) -> tuple[ReceiverVatConditionItem, ...]:
+        """List the receiver VAT conditions, of one voucher class or of all.
+
+        Raises:
+            ArcaErrorsError: If ARCA answers with errors.
+        """
+        return self._lookup(
+            WsfeOperation.RECEIVER_VAT_CONDITIONS,
+            lambda ticket: build_receiver_vat_conditions_request(
+                ticket=ticket, cuit=self._cuit, voucher_class=voucher_class
+            ),
+            parse_receiver_vat_conditions_response,
+        )
+
+    def points_of_sale(self) -> tuple[PointOfSale, ...]:
+        """List the points of sale enabled for electronic invoicing; none gives an empty list.
+
+        Raises:
+            ArcaErrorsError: If ARCA answers with errors.
+        """
+        return self._lookup(
+            WsfeOperation.POINTS_OF_SALE,
+            lambda ticket: build_points_of_sale_request(ticket=ticket, cuit=self._cuit),
+            parse_points_of_sale_response,
+        )
+
+    def exchange_rate(self, *, currency: str, on: date | None = None) -> ExchangeRate:
+        """Return ARCA's indicative quotation of `currency`, on a date or the latest.
+
+        Raises:
+            ArcaErrorsError: If ARCA answers with errors, such as an unknown currency.
+        """
+        (rate,) = self._lookup(
+            WsfeOperation.EXCHANGE_RATE,
+            lambda ticket: build_exchange_rate_request(
+                ticket=ticket, cuit=self._cuit, currency=currency, on=on
+            ),
+            parse_exchange_rate_response,
+        )
+        return rate
+
+    def _reference_list(self, table: ReferenceList) -> tuple[ReferenceItem, ...]:
+        return self._lookup(
+            table,
+            lambda ticket: build_reference_list_request(table, ticket=ticket, cuit=self._cuit),
+            lambda response: parse_reference_list_response(response, table),
+        )
+
+    def _lookup[T](
+        self,
+        operation: StrEnum,
+        build: Callable[[AccessTicket], bytes],
+        parse: Callable[[bytes], ParameterResult[T]],
+    ) -> tuple[T, ...]:
+        response = self._transport.post(
+            url=WSFE_ENDPOINTS[self._environment],
+            body=build(self._ticket_provider.get_access_ticket(Service.WSFE)),
+            soap_action=soap_action(operation),
+        )
+        result = parse(response)
+        if any(message.code != ArcaErrorCode.NO_DATA_FOUND for message in result.errors):
+            raise ArcaErrorsError(result.errors)
+        return result.items
 
     def _submit(
         self, voucher: VoucherRequest, *, number: int, ticket: AccessTicket
