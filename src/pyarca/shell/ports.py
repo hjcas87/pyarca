@@ -8,3 +8,10 @@ class Signer(Protocol):
 
     def sign(self, data: bytes) -> bytes:
         """Return `data` wrapped in a CMS signed structure, DER encoded."""
+
+
+class Transport(Protocol):
+    """Sends a SOAP request and returns the response body."""
+
+    def post(self, *, url: str, body: bytes) -> bytes:
+        """Post `body` to `url` and return the body of the answer, including SOAP faults."""
