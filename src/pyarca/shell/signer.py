@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import pkcs7
 
+from pyarca.shell.environment_guard import CertificateIssuer, issuer_of
 from pyarca.shell.ports import Signer
 
 # The WSAA specification (1.2.2) names SHA-1 with RSA, but `cryptography` refuses SHA-1 in PKCS7.
@@ -59,6 +60,11 @@ class CmsSigner(Signer):
     def certificate_id(self) -> str:
         """Return the SHA-256 fingerprint of the certificate, in hex."""
         return self._certificate.fingerprint(hashes.SHA256()).hex()
+
+    @property
+    def issuer(self) -> CertificateIssuer:
+        """Return the issuer of the certificate."""
+        return issuer_of(self._certificate)
 
     def sign(self, data: bytes) -> bytes:
         """Return `data` wrapped in a CMS signed structure, DER encoded."""

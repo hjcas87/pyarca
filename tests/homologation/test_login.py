@@ -15,6 +15,7 @@ from cryptography.x509.oid import NameOID
 from pyarca.core.wsaa import Service, WsaaFaultCode, WsaaFaultError
 from pyarca.shell.clock import SystemClock
 from pyarca.shell.endpoints import Environment
+from pyarca.shell.environment_guard import is_homologation_issuer, issuer_of
 from pyarca.shell.signer import CmsSigner
 from pyarca.shell.token_store import InMemoryTokenStore
 from pyarca.shell.transport import HttpxTransport
@@ -23,16 +24,10 @@ from pyarca.shell.wsaa_client import WsaaClient
 CERTIFICATE_ENV = "PYARCA_HOMOLOGATION_CERTIFICATE"
 PRIVATE_KEY_ENV = "PYARCA_HOMOLOGATION_PRIVATE_KEY"
 CUIT_ENV = "PYARCA_HOMOLOGATION_CUIT"
-HOMOLOGATION_ISSUER = {
-    NameOID.COMMON_NAME: "Computadores Test",
-    NameOID.ORGANIZATION_NAME: "AFIP",
-    NameOID.COUNTRY_NAME: "AR",
-}
 
 
 def is_homologation_certificate(certificate: x509.Certificate) -> bool:
-    issuer = {attribute.oid: attribute.value for attribute in certificate.issuer}
-    return issuer == HOMOLOGATION_ISSUER
+    return is_homologation_issuer(issuer_of(certificate))
 
 
 def subject_names_cuit(certificate: x509.Certificate, cuit: str) -> bool:

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from pyarca.core.wsaa import AccessTicket, Service
+    from pyarca.shell.environment_guard import CertificateIssuer
     from pyarca.shell.token_store import TicketKey
 
 
@@ -14,6 +15,10 @@ class Signer(Protocol):
     @property
     def certificate_id(self) -> str:
         """Identify the certificate, so access tickets are stored per certificate."""
+
+    @property
+    def issuer(self) -> "CertificateIssuer":
+        """Identify who issued the certificate, so it is not used in the wrong environment."""
 
     def sign(self, data: bytes) -> bytes:
         """Return `data` wrapped in a CMS signed structure, DER encoded."""
