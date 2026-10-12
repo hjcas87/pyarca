@@ -69,3 +69,9 @@ class ReceiverVatCondition(IntEnum):
     SOCIAL_MONOTAX = 13
     NOT_SUBJECT_TO_VAT = 15
     PROMOTED_INDEPENDENT_MONOTAX = 16
+
+
+class ArcaErrorCode(IntEnum):
+    """Codes of ARCA errors and observations that callers act on."""
+
+    VOUCHER_OUT_OF_SEQUENCE = 10016
