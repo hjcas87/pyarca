@@ -27,8 +27,6 @@ from pyarca.core.wsfe_codes import VoucherType
 WSFE_NAMESPACE = "http://ar.gov.afip.dif.FEV1/"
 VOUCHER_DATE_FORMAT = "%Y%m%d"
 SINGLE_VOUCHER_COUNT = 1
-# Tributos are not sent yet, so the other-taxes total is always zero.
-NO_TRIBUTES = Decimal(0)
 
 
 class WsfeOperation(StrEnum):
@@ -167,13 +165,27 @@ def _add_detail(parent: etree._Element, *, voucher: VoucherRequest, voucher_numb
     _add_text(detail, "ImpTotConc", format_amount(voucher.non_taxed))
     _add_text(detail, "ImpNeto", format_amount(voucher.net))
     _add_text(detail, "ImpOpEx", format_amount(voucher.exempt))
-    _add_text(detail, "ImpTrib", format_amount(NO_TRIBUTES))
+    _add_text(detail, "ImpTrib", format_amount(voucher.tributes_total))
     _add_text(detail, "ImpIVA", format_amount(voucher.vat_total))
     _add_text(detail, "MonId", voucher.currency)
     _add_text(detail, "MonCotiz", format(voucher.exchange_rate, "f"))
     _add_text(detail, "CondicionIVAReceptorId", voucher.receiver_vat_condition.value)
+    if voucher.tributes:
+        _add_tributes(detail, voucher)
     if voucher.vat_lines:
         _add_vat(detail, voucher)
+
+
+def _add_tributes(parent: etree._Element, voucher: VoucherRequest) -> None:
+    tributes = etree.SubElement(parent, _name("Tributos"))
+    for tribute in voucher.tributes:
+        element = etree.SubElement(tributes, _name("Tributo"))
+        _add_text(element, "Id", tribute.tribute_type.value)
+        if tribute.description:
+            _add_text(element, "Desc", tribute.description)
+        _add_text(element, "BaseImp", format_amount(tribute.base))
+        _add_text(element, "Alic", format_amount(tribute.rate))
+        _add_text(element, "Importe", format_amount(tribute.amount))
 
 
 def _add_vat(parent: etree._Element, voucher: VoucherRequest) -> None:

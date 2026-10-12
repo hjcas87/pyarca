@@ -9,6 +9,7 @@ import pytest
 from pyarca.core.amounts import AmountDefect, InvalidAmountError
 from pyarca.core.voucher import (
     InvalidVoucherError,
+    Tribute,
     VatLine,
     VoucherDefect,
     VoucherRequest,
@@ -17,6 +18,7 @@ from pyarca.core.wsfe_codes import (
     Concept,
     DocumentType,
     ReceiverVatCondition,
+    TributeType,
     VatRate,
     VoucherType,
 )
@@ -60,6 +62,27 @@ def _invoice_c(**overrides: object) -> VoucherRequest:
         "vat_lines": (),
     }
     return _with({**defaults, **overrides})
+
+
+def _invoice_a(**overrides: object) -> VoucherRequest:
+    defaults: dict[str, object] = {
+        "voucher_type": VoucherType.INVOICE_A,
+        "document_type": DocumentType.CUIT,
+        "document_number": 20111111112,
+        "receiver_vat_condition": ReceiverVatCondition.REGISTERED_COMPANY,
+    }
+    return _with({**defaults, **overrides})
+
+
+def _tribute(**overrides: object) -> Tribute:
+    values: dict[str, object] = {
+        "tribute_type": TributeType.GROSS_INCOME,
+        "description": None,
+        "base": Decimal("100.00"),
+        "rate": Decimal("3.00"),
+        "amount": Decimal("3.00"),
+    }
+    return Tribute(**cast("dict[str, Any]", {**values, **overrides}))
 
 
 def _defect_of(build: Callable[[], object]) -> VoucherDefect:
@@ -169,7 +192,7 @@ def test_a_final_consumer_must_carry_document_number_zero() -> None:
 @pytest.mark.parametrize(
     ("overrides", "defect"),
     [
-        ({"voucher_type": VoucherType.INVOICE_A}, VoucherDefect.UNSUPPORTED_VOUCHER_TYPE),
+        ({"voucher_type": VoucherType.CREDIT_NOTE_A}, VoucherDefect.UNSUPPORTED_VOUCHER_TYPE),
         ({"concept": Concept.SERVICES}, VoucherDefect.UNSUPPORTED_CONCEPT),
         ({"currency": "USD"}, VoucherDefect.UNSUPPORTED_CURRENCY),
         ({"exchange_rate": Decimal(2)}, VoucherDefect.EXCHANGE_RATE_NOT_ONE),
@@ -184,3 +207,103 @@ def test_what_this_version_cannot_authorize_is_rejected(
 def test_a_float_exchange_rate_is_rejected() -> None:
     with pytest.raises(InvalidAmountError):
         _invoice_b(exchange_rate=1.0)
+
+
+def test_an_invoice_a_with_several_aliquots_and_a_tribute_is_accepted(
+    invoice_a: VoucherRequest,
+) -> None:
+    assert [line.rate for line in invoice_a.vat_lines] == [VatRate.RATE_21, VatRate.RATE_10_5]
+    assert invoice_a.tributes_total == Decimal("7.80")
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        ReceiverVatCondition.REGISTERED_COMPANY,
+        ReceiverVatCondition.MONOTAX,
+        ReceiverVatCondition.SOCIAL_MONOTAX,
+        ReceiverVatCondition.PROMOTED_INDEPENDENT_MONOTAX,
+    ],
+)
+def test_an_invoice_a_accepts_the_receivers_that_are_charged_vat(
+    condition: ReceiverVatCondition,
+) -> None:
+    assert _invoice_a(receiver_vat_condition=condition).receiver_vat_condition == condition
+
+
+@pytest.mark.parametrize(
+    "condition", [ReceiverVatCondition.FINAL_CONSUMER, ReceiverVatCondition.EXEMPT]
+)
+def test_an_invoice_a_rejects_the_receivers_that_are_not_charged_vat(
+    condition: ReceiverVatCondition,
+) -> None:
+    assert _defect_of(lambda: _invoice_a(receiver_vat_condition=condition)) == (
+        VoucherDefect.RECEIVER_CONDITION_NOT_ALLOWED
+    )
+
+
+def test_an_invoice_a_receiver_must_be_identified_by_cuit() -> None:
+    defect = _defect_of(
+        lambda: _invoice_a(document_type=DocumentType.DNI, document_number=20111111112)
+    )
+
+    assert defect == VoucherDefect.DOCUMENT_TYPE_NOT_ALLOWED
+
+
+@pytest.mark.parametrize("document_number", [19_999_999_999, 60_000_000_001])
+def test_an_invoice_a_receiver_cuit_must_be_in_arcas_range(document_number: int) -> None:
+    assert _defect_of(lambda: _invoice_a(document_number=document_number)) == (
+        VoucherDefect.DOCUMENT_NUMBER_OUT_OF_RANGE
+    )
+
+
+def test_an_invoice_a_checks_its_vat_like_an_invoice_b() -> None:
+    lines = (VatLine(rate=VatRate.RATE_21, base=Decimal("100.00"), amount=Decimal("20.00")),)
+
+    assert _defect_of(lambda: _invoice_a(vat_lines=lines)) == VoucherDefect.VAT_AMOUNT_MISMATCH
+
+
+def test_tributes_are_part_of_the_total() -> None:
+    tributes = (_tribute(),)
+
+    assert _defect_of(lambda: _invoice_b(tributes=tributes)) == VoucherDefect.TOTAL_MISMATCH
+    assert _invoice_b(tributes=tributes, total=Decimal("124.00")).tributes_total == Decimal("3.00")
+
+
+def test_an_invoice_c_total_is_its_net_plus_its_tributes() -> None:
+    request = _invoice_c(tributes=(_tribute(),), total=Decimal("103.00"))
+
+    assert request.tributes_total == Decimal("3.00")
+
+
+def test_tributes_that_add_up_to_zero_are_rejected_because_arca_wants_none_then() -> None:
+    tributes = (_tribute(amount=Decimal(0)),)
+
+    assert (
+        _defect_of(lambda: _invoice_b(tributes=tributes)) == VoucherDefect.TRIBUTES_WITHOUT_AMOUNT
+    )
+
+
+def test_the_other_tribute_must_say_what_it_is() -> None:
+    assert _defect_of(lambda: _tribute(tribute_type=TributeType.OTHER)) == (
+        VoucherDefect.TRIBUTE_DESCRIPTION_REQUIRED
+    )
+
+
+def test_a_tribute_description_longer_than_arca_takes_is_rejected() -> None:
+    assert _defect_of(lambda: _tribute(description="x" * 81)) == (
+        VoucherDefect.TRIBUTE_DESCRIPTION_TOO_LONG
+    )
+
+
+def test_a_tribute_rate_beyond_three_integer_digits_is_rejected() -> None:
+    assert _defect_of(lambda: _tribute(rate=Decimal("1000.00"))) == (
+        VoucherDefect.TRIBUTE_RATE_OUT_OF_RANGE
+    )
+
+
+def test_a_tribute_amount_with_more_than_two_decimals_is_rejected() -> None:
+    with pytest.raises(InvalidAmountError) as error:
+        _tribute(amount=Decimal("3.001"))
+
+    assert error.value.field == "tribute.amount"

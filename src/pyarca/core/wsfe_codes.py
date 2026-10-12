@@ -55,6 +55,22 @@ class VatRate(IntEnum):
     RATE_2_5 = 9
 
 
+class TributeType(IntEnum):
+    """`Tributo.Id`: the kind of other tax, as `FEParamGetTiposTributos` lists them."""
+
+    NATIONAL_TAXES = 1
+    PROVINCIAL_TAXES = 2
+    MUNICIPAL_TAXES = 3
+    INTERNAL_TAXES = 4
+    GROSS_INCOME = 5
+    VAT_PERCEPTION = 6
+    GROSS_INCOME_PERCEPTION = 7
+    MUNICIPAL_PERCEPTION = 8
+    OTHER_PERCEPTIONS = 9
+    VAT_PERCEPTION_NOT_CATEGORIZED = 13
+    OTHER = 99
+
+
 class ReceiverVatCondition(IntEnum):
     """`CondicionIVAReceptorId` (RG 5616): the receiver's standing before VAT."""
 

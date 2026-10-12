@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -20,7 +21,7 @@ from pyarca.core.wsfe import (
     parse_consult_response,
     parse_last_authorized_response,
 )
-from pyarca.core.wsfe_codes import DocumentType, VoucherType
+from pyarca.core.wsfe_codes import DocumentType, TributeType, VoucherType
 
 FIXTURES = Path(__file__).parent / "fixtures/wsfe"
 CUIT = 20111111112
@@ -69,6 +70,32 @@ def test_an_invoice_c_request_matches_the_one_homologation_authorized(
 
     expected = (FIXTURES / "authorize_request_invoice_c.xml").read_bytes()
     assert _canonical(request) == _canonical(expected)
+
+
+def test_an_invoice_a_request_states_its_aliquots_and_tributes_in_the_order_arca_expects(
+    invoice_a: VoucherRequest,
+) -> None:
+    request = build_authorize_request(
+        ticket=TICKET, cuit=CUIT, voucher=invoice_a, voucher_number=VOUCHER_NUMBER
+    )
+
+    expected = (FIXTURES / "authorize_request_invoice_a.xml").read_bytes()
+    assert _canonical(request) == _canonical(expected)
+
+
+def test_a_tribute_without_a_description_is_sent_without_one(invoice_a: VoucherRequest) -> None:
+    (tribute,) = invoice_a.tributes
+    described = replace(tribute, tribute_type=TributeType.GROSS_INCOME, description=None)
+
+    request = build_authorize_request(
+        ticket=TICKET,
+        cuit=CUIT,
+        voucher=replace(invoice_a, tributes=(described,)),
+        voucher_number=VOUCHER_NUMBER,
+    )
+
+    assert b"<ar:Desc>" not in request
+    assert b"<ar:Id>5</ar:Id><ar:BaseImp>150.00</ar:BaseImp><ar:Alic>5.20" in request
 
 
 @pytest.mark.parametrize("voucher_number", [0, -1, 100_000_000])
