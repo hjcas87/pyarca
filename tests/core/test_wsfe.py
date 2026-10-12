@@ -99,6 +99,22 @@ def test_a_credit_note_carries_the_point_of_sale_of_the_voucher_it_cancels(
     assert _canonical(request) == _canonical(expected)
 
 
+def test_a_credit_note_c_request_matches_the_one_homologation_authorized(
+    credit_note_c: VoucherRequest,
+) -> None:
+    (associated,) = credit_note_c.associated_vouchers
+    cancelled = replace(associated, point_of_sale=1, number=1, voucher_date=date(2026, 10, 12))
+    request = build_authorize_request(
+        ticket=RECORDED_TICKET,
+        cuit=RECORDED_CUIT,
+        voucher=replace(credit_note_c, associated_vouchers=(cancelled,)),
+        voucher_number=RECORDED_VOUCHER_NUMBER,
+    )
+
+    expected = (FIXTURES / "authorize_request_credit_note_c_recorded.xml").read_bytes()
+    assert _canonical(request) == _canonical(expected)
+
+
 def test_an_associated_voucher_without_cuit_or_date_is_sent_without_them(
     credit_note_c: VoucherRequest,
 ) -> None:
@@ -196,6 +212,24 @@ def test_an_approved_response_yields_the_cae_and_its_due_date() -> None:
     assert authorization.observations == ()
     assert authorization.errors == ()
     assert authorization.events == ()
+
+
+def test_the_approved_response_to_a_credit_note_yields_its_cae() -> None:
+    authorization = parse_authorize_response(_fixture("authorize_response_credit_note_c.xml"))
+
+    assert authorization.result == AuthorizationResult.APPROVED
+    assert authorization.voucher_number == RECORDED_VOUCHER_NUMBER
+    assert authorization.cae == "86410988055852"
+
+
+def test_a_recorded_consult_response_yields_the_invoice_a_note_cancels() -> None:
+    voucher = parse_consult_response(_fixture("consult_response_invoice_c.xml")).voucher
+
+    assert voucher is not None
+    assert voucher.voucher_number == RECORDED_VOUCHER_NUMBER
+    assert voucher.voucher_date == date(2026, 10, 12)
+    assert voucher.total == Decimal(100)
+    assert voucher.cae == RECORDED_CAE
 
 
 def test_an_approved_response_keeps_its_observations_and_events() -> None:
