@@ -169,7 +169,7 @@ class WsfeClient:
                 soap_action=soap_action(WsfeOperation.AUTHORIZE),
             )
             return parse_authorize_response(response)
-        except (ResponseLostError, SoapFaultError) as error:
+        except (ResponseLostError, SoapFaultError, MalformedResponseError) as error:
             return self._recover(voucher, number=number, ticket=ticket, cause=error)
         except HttpStatusError as error:
             if error.status_code < HTTPStatus.INTERNAL_SERVER_ERROR:

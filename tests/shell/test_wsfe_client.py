@@ -177,7 +177,9 @@ def _actions(transport: FakeTransport) -> list[str]:
 
 
 @pytest.mark.parametrize(
-    "lost", [ResponseLostError(), HttpStatusError(BAD_GATEWAY), FAULT], ids=["lost", "5xx", "fault"]
+    "lost",
+    [ResponseLostError(), HttpStatusError(BAD_GATEWAY), FAULT, b"<malformed/>"],
+    ids=["lost", "5xx", "fault", "malformed"],
 )
 def test_an_ambiguous_outcome_is_resolved_by_consulting_the_same_number(
     invoice_b: VoucherRequest, lost: bytes | Exception
