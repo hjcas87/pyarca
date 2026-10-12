@@ -1,21 +1,41 @@
 """Authorize vouchers with WSFE; no call is ever repeated on its own (ADR 0004)."""
 
+from http import HTTPStatus
+
+from pyarca.core.recovery import (
+    ConsultationInconclusiveError,
+    NotAuthorized,
+    resolve_ambiguous,
+)
+from pyarca.core.soap import MalformedResponseError, SoapFaultError
 from pyarca.core.voucher import VoucherRequest
-from pyarca.core.wsaa import Service
+from pyarca.core.wsaa import AccessTicket, Service
 from pyarca.core.wsfe import (
     ArcaMessage,
     AuthorizationResult,
     VoucherAuthorization,
     WsfeOperation,
     build_authorize_request,
+    build_consult_request,
     build_last_authorized_request,
     parse_authorize_response,
+    parse_consult_response,
     parse_last_authorized_response,
     soap_action,
 )
 from pyarca.core.wsfe_codes import ArcaErrorCode, VoucherType
 from pyarca.shell.endpoints import WSFE_ENDPOINTS, Environment
 from pyarca.shell.ports import TicketProvider, Transport
+from pyarca.shell.transport import HttpStatusError, RequestNotSentError, ResponseLostError
+
+CONSULTATION_FAILURES = (
+    RequestNotSentError,
+    ResponseLostError,
+    HttpStatusError,
+    SoapFaultError,
+    MalformedResponseError,
+    ConsultationInconclusiveError,
+)
 
 
 class ArcaErrorsError(Exception):
@@ -38,6 +58,34 @@ class VoucherNumberMismatchError(Exception):
         super().__init__(arca_message)
         self.arca_message = arca_message
         self.last_authorized_number = last_authorized_number
+
+
+class VoucherOutcomeError(Exception):
+    """A voucher sent to ARCA, named by point of sale, type and number, whose outcome is told."""
+
+    def __init__(
+        self, *, point_of_sale: int, voucher_type: VoucherType, voucher_number: int
+    ) -> None:
+        """Build the error naming the voucher."""
+        super().__init__(f"{point_of_sale}-{voucher_type.name}-{voucher_number}")
+        self.point_of_sale = point_of_sale
+        self.voucher_type = voucher_type
+        self.voucher_number = voucher_number
+
+
+class VoucherNotAuthorizedError(VoucherOutcomeError):
+    """ARCA has no voucher under the number: the request was not authorized.
+
+    Authorizing the same voucher again is safe and gets the same number.
+    """
+
+
+class RecoveryFailedError(VoucherOutcomeError):
+    """The outcome of a sent authorization is unknown and could not be looked up.
+
+    The caller must reconcile the named voucher later, with `FECompConsultar`, and must not
+    renumber in the meantime.
+    """
 
 
 class WsfeClient:
@@ -89,8 +137,10 @@ class WsfeClient:
             ArcaErrorsError: If ARCA answers with any other error.
             RequestNotSentError: If the connection failed before the request left; sending it
                 again is safe.
-            ResponseLostError: If the request was sent and the answer never arrived; the voucher
-                may be authorized, so the caller must not renumber.
+            VoucherNotAuthorizedError: If the outcome was ambiguous and ARCA has no such voucher.
+            VoucherNumberTakenError: If the outcome was ambiguous and ARCA has another voucher
+                under the number.
+            RecoveryFailedError: If the outcome was ambiguous and the consultation failed too.
         """
         number = (
             self.last_authorized(
@@ -98,23 +148,63 @@ class WsfeClient:
             )
             + 1
         )
-        response = self._transport.post(
-            url=WSFE_ENDPOINTS[self._environment],
-            body=build_authorize_request(
-                ticket=self._ticket_provider.get_access_ticket(Service.WSFE),
-                cuit=self._cuit,
-                voucher=voucher,
-                voucher_number=number,
-            ),
-            soap_action=soap_action(WsfeOperation.AUTHORIZE),
-        )
-        authorization = parse_authorize_response(response)
+        ticket = self._ticket_provider.get_access_ticket(Service.WSFE)
+        authorization = self._submit(voucher, number=number, ticket=ticket)
         if authorization.result == AuthorizationResult.APPROVED:
             return authorization
         self._raise_out_of_sequence(authorization, voucher)
         if authorization.errors:
             raise ArcaErrorsError(authorization.errors)
         return authorization
+
+    def _submit(
+        self, voucher: VoucherRequest, *, number: int, ticket: AccessTicket
+    ) -> VoucherAuthorization:
+        try:
+            response = self._transport.post(
+                url=WSFE_ENDPOINTS[self._environment],
+                body=build_authorize_request(
+                    ticket=ticket, cuit=self._cuit, voucher=voucher, voucher_number=number
+                ),
+                soap_action=soap_action(WsfeOperation.AUTHORIZE),
+            )
+            return parse_authorize_response(response)
+        except (ResponseLostError, SoapFaultError) as error:
+            return self._recover(voucher, number=number, ticket=ticket, cause=error)
+        except HttpStatusError as error:
+            if error.status_code < HTTPStatus.INTERNAL_SERVER_ERROR:
+                raise
+            return self._recover(voucher, number=number, ticket=ticket, cause=error)
+
+    def _recover(
+        self, voucher: VoucherRequest, *, number: int, ticket: AccessTicket, cause: Exception
+    ) -> VoucherAuthorization:
+        try:
+            response = self._transport.post(
+                url=WSFE_ENDPOINTS[self._environment],
+                body=build_consult_request(
+                    ticket=ticket,
+                    cuit=self._cuit,
+                    point_of_sale=voucher.point_of_sale,
+                    voucher_type=voucher.voucher_type,
+                    voucher_number=number,
+                ),
+                soap_action=soap_action(WsfeOperation.CONSULT),
+            )
+            resolution = resolve_ambiguous(voucher, number, parse_consult_response(response))
+        except CONSULTATION_FAILURES as error:
+            raise RecoveryFailedError(
+                point_of_sale=voucher.point_of_sale,
+                voucher_type=voucher.voucher_type,
+                voucher_number=number,
+            ) from error
+        if isinstance(resolution, NotAuthorized):
+            raise VoucherNotAuthorizedError(
+                point_of_sale=voucher.point_of_sale,
+                voucher_type=voucher.voucher_type,
+                voucher_number=number,
+            ) from cause
+        return resolution
 
     def _raise_out_of_sequence(
         self, authorization: VoucherAuthorization, voucher: VoucherRequest

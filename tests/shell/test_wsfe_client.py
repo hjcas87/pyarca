@@ -4,18 +4,22 @@ from pathlib import Path
 
 import pytest
 
+from pyarca.core.recovery import VoucherConflictField, VoucherNumberTakenError
 from pyarca.core.voucher import VoucherRequest
 from pyarca.core.wsaa import AccessTicket, Service
 from pyarca.core.wsfe import (
     AuthorizationResult,
     build_authorize_request,
+    build_consult_request,
     build_last_authorized_request,
 )
 from pyarca.core.wsfe_codes import VoucherType
 from pyarca.shell.endpoints import WSFE_ENDPOINTS, Environment
-from pyarca.shell.transport import ResponseLostError
+from pyarca.shell.transport import HttpStatusError, RequestNotSentError, ResponseLostError
 from pyarca.shell.wsfe_client import (
     ArcaErrorsError,
+    RecoveryFailedError,
+    VoucherNotAuthorizedError,
     VoucherNumberMismatchError,
     WsfeClient,
 )
@@ -37,6 +41,13 @@ LAST_RESPONSE = _fixture("last_authorized_response.xml")
 APPROVED = _fixture("authorize_response_approved.xml")
 ERRORS = _fixture("authorize_response_errors.xml")
 REJECTED = _fixture("authorize_response_rejected.xml")
+CONSULTED = _fixture("consult_response.xml")
+NOT_FOUND = _fixture("consult_response_not_found.xml")
+FAULT = _fixture("fault.xml")
+NEXT_NUMBER = LAST_AUTHORIZED + 1
+CONSULTED_CAE = "76412345678901"
+BAD_GATEWAY = 502
+BAD_REQUEST = 400
 
 
 @dataclass
@@ -161,13 +172,104 @@ def test_any_other_arca_error_is_raised_with_its_codes(invoice_b: VoucherRequest
     assert [message.code for message in error.value.errors] == [10000]
 
 
-def test_a_lost_response_is_not_retried_nor_renumbered(invoice_b: VoucherRequest) -> None:
-    transport = FakeTransport([LAST_RESPONSE, ResponseLostError()])
+def _actions(transport: FakeTransport) -> list[str]:
+    return [action.removeprefix(ACTION_PREFIX) for _, _, action in transport.posts]
 
-    with pytest.raises(ResponseLostError):
+
+@pytest.mark.parametrize(
+    "lost", [ResponseLostError(), HttpStatusError(BAD_GATEWAY), FAULT], ids=["lost", "5xx", "fault"]
+)
+def test_an_ambiguous_outcome_is_resolved_by_consulting_the_same_number(
+    invoice_b: VoucherRequest, lost: bytes | Exception
+) -> None:
+    transport = FakeTransport([LAST_RESPONSE, lost, CONSULTED])
+
+    authorization = _client(transport).authorize(invoice_b)
+
+    assert authorization.result == AuthorizationResult.APPROVED
+    assert authorization.cae == CONSULTED_CAE
+    assert authorization.voucher_number == NEXT_NUMBER
+    assert _actions(transport) == ["FECompUltimoAutorizado", "FECAESolicitar", "FECompConsultar"]
+    assert transport.posts[2][1] == build_consult_request(
+        ticket=TICKET,
+        cuit=CUIT,
+        point_of_sale=POINT_OF_SALE,
+        voucher_type=VoucherType.INVOICE_B,
+        voucher_number=NEXT_NUMBER,
+    )
+
+
+def test_a_client_error_status_is_not_ambiguous_and_is_not_consulted(
+    invoice_b: VoucherRequest,
+) -> None:
+    transport = FakeTransport([LAST_RESPONSE, HttpStatusError(BAD_REQUEST)])
+
+    with pytest.raises(HttpStatusError):
         _client(transport).authorize(invoice_b)
 
-    assert [action for _, _, action in transport.posts] == [
-        f"{ACTION_PREFIX}FECompUltimoAutorizado",
-        f"{ACTION_PREFIX}FECAESolicitar",
-    ]
+    assert _actions(transport) == ["FECompUltimoAutorizado", "FECAESolicitar"]
+
+
+def test_a_request_that_never_left_is_raised_untouched_for_the_caller_to_retry(
+    invoice_b: VoucherRequest,
+) -> None:
+    transport = FakeTransport([LAST_RESPONSE, RequestNotSentError()])
+
+    with pytest.raises(RequestNotSentError):
+        _client(transport).authorize(invoice_b)
+
+    assert _actions(transport) == ["FECompUltimoAutorizado", "FECAESolicitar"]
+
+
+def test_a_voucher_arca_does_not_have_is_reported_without_sending_again_or_renumbering(
+    invoice_b: VoucherRequest,
+) -> None:
+    transport = FakeTransport([LAST_RESPONSE, ResponseLostError(), NOT_FOUND])
+
+    with pytest.raises(VoucherNotAuthorizedError) as error:
+        _client(transport).authorize(invoice_b)
+
+    assert error.value.voucher_number == NEXT_NUMBER
+    assert error.value.point_of_sale == POINT_OF_SALE
+    assert error.value.voucher_type == VoucherType.INVOICE_B
+    assert isinstance(error.value.__cause__, ResponseLostError)
+    assert _actions(transport).count("FECAESolicitar") == 1
+
+
+def test_a_voucher_of_another_issuer_under_the_number_is_a_conflict(
+    invoice_b: VoucherRequest,
+) -> None:
+    other_total = CONSULTED.replace(b"<ImpTotal>121<", b"<ImpTotal>999<")
+    transport = FakeTransport([LAST_RESPONSE, ResponseLostError(), other_total])
+
+    with pytest.raises(VoucherNumberTakenError) as error:
+        _client(transport).authorize(invoice_b)
+
+    assert error.value.differences == (VoucherConflictField.TOTAL,)
+
+
+@pytest.mark.parametrize(
+    "consult_failure",
+    [
+        ResponseLostError(),
+        RequestNotSentError(),
+        HttpStatusError(BAD_GATEWAY),
+        FAULT,
+        b"<malformed/>",
+        NOT_FOUND.replace(b">602<", b">600<"),
+    ],
+    ids=["lost", "not-sent", "http-5xx", "fault", "malformed", "inconclusive"],
+)
+def test_a_failed_consultation_reports_what_to_reconcile_later(
+    invoice_b: VoucherRequest, consult_failure: bytes | Exception
+) -> None:
+    transport = FakeTransport([LAST_RESPONSE, ResponseLostError(), consult_failure])
+
+    with pytest.raises(RecoveryFailedError) as error:
+        _client(transport).authorize(invoice_b)
+
+    assert error.value.point_of_sale == POINT_OF_SALE
+    assert error.value.voucher_type == VoucherType.INVOICE_B
+    assert error.value.voucher_number == NEXT_NUMBER
+    assert error.value.__cause__ is not None
+    assert _actions(transport).count("FECAESolicitar") == 1
