@@ -275,3 +275,48 @@ def test_a_failed_consultation_reports_what_to_reconcile_later(
     assert error.value.voucher_number == NEXT_NUMBER
     assert error.value.__cause__ is not None
     assert _actions(transport).count("FECAESolicitar") == 1
+
+
+def test_consult_returns_the_voucher_arca_has_under_the_number() -> None:
+    transport = FakeTransport([CONSULTED])
+
+    voucher = _client(transport).consult(
+        point_of_sale=POINT_OF_SALE, voucher_type=VoucherType.INVOICE_B, voucher_number=NEXT_NUMBER
+    )
+
+    assert voucher is not None
+    assert voucher.cae == CONSULTED_CAE
+    assert transport.posts == [
+        (
+            URL,
+            build_consult_request(
+                ticket=TICKET,
+                cuit=CUIT,
+                point_of_sale=POINT_OF_SALE,
+                voucher_type=VoucherType.INVOICE_B,
+                voucher_number=NEXT_NUMBER,
+            ),
+            f"{ACTION_PREFIX}FECompConsultar",
+        )
+    ]
+
+
+def test_consult_returns_nothing_when_arca_has_no_voucher_under_the_number() -> None:
+    transport = FakeTransport([NOT_FOUND])
+
+    voucher = _client(transport).consult(
+        point_of_sale=POINT_OF_SALE, voucher_type=VoucherType.INVOICE_B, voucher_number=NEXT_NUMBER
+    )
+
+    assert voucher is None
+
+
+def test_consult_reports_any_other_error_arca_returns() -> None:
+    transport = FakeTransport([NOT_FOUND.replace(b">602<", b">600<")])
+
+    with pytest.raises(ArcaErrorsError):
+        _client(transport).consult(
+            point_of_sale=POINT_OF_SALE,
+            voucher_type=VoucherType.INVOICE_B,
+            voucher_number=NEXT_NUMBER,
+        )
