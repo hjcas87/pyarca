@@ -13,6 +13,7 @@ from pyarca.core.voucher import (
     InvalidVoucherError,
     ServicePeriod,
     VoucherDefect,
+    VoucherOptional,
     VoucherRequest,
 )
 from pyarca.core.wsaa import AccessTicket
@@ -26,7 +27,7 @@ from pyarca.core.wsfe import (
     parse_consult_response,
     parse_last_authorized_response,
 )
-from pyarca.core.wsfe_codes import Concept, DocumentType, TributeType, VoucherType
+from pyarca.core.wsfe_codes import Concept, DocumentType, OptionalId, TributeType, VoucherType
 
 FIXTURES = Path(__file__).parent / "fixtures/wsfe"
 CUIT = 20111111112
@@ -184,6 +185,29 @@ def test_a_tribute_without_a_description_is_sent_without_one(invoice_a: VoucherR
 
     assert b"<ar:Desc>" not in request
     assert b"<ar:Id>5</ar:Id><ar:BaseImp>150.00</ar:BaseImp><ar:Alic>5.20" in request
+
+
+def test_optionals_follow_the_vat_aliquots_in_the_order_the_caller_gave_them(
+    invoice_b: VoucherRequest,
+) -> None:
+    optionals = (
+        VoucherOptional(optional_id=OptionalId.COMMERCIAL_REFERENCE, value="OC-1"),
+        VoucherOptional(optional_id=OptionalId.COMMERCIAL_REFERENCE, value="OC-2"),
+    )
+
+    request = build_authorize_request(
+        ticket=TICKET,
+        cuit=CUIT,
+        voucher=replace(invoice_b, optionals=optionals),
+        voucher_number=VOUCHER_NUMBER,
+    )
+
+    assert (
+        b"</ar:Iva><ar:Opcionales>"
+        b"<ar:Opcional><ar:Id>23</ar:Id><ar:Valor>OC-1</ar:Valor></ar:Opcional>"
+        b"<ar:Opcional><ar:Id>23</ar:Id><ar:Valor>OC-2</ar:Valor></ar:Opcional>"
+        b"</ar:Opcionales></ar:FECAEDetRequest>"
+    ) in request
 
 
 @pytest.mark.parametrize("voucher_number", [0, -1, 100_000_000])

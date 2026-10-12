@@ -9,9 +9,12 @@ from enum import StrEnum
 
 from pyarca.core.amounts import amounts_match, validate_amount, validate_exchange_rate
 from pyarca.core.wsfe_codes import (
+    AnnulmentCode,
     Concept,
     DocumentType,
+    OptionalId,
     ReceiverVatCondition,
+    TransferMode,
     TributeType,
     VatRate,
     VoucherType,
@@ -28,6 +31,10 @@ TRIBUTE_RATE_INTEGER_DIGITS = 3
 MAX_POINT_OF_SALE = 99_999
 CUIT_DIGITS = 11
 CURRENCY_CODE = re.compile(r"[A-Z0-9]{3}")
+CBU = re.compile(r"[0-9]{22}")
+CBU_ALIAS = re.compile(r"[A-Za-z0-9.\-]{6,20}")
+MAX_COMMERCIAL_REFERENCE_LENGTH = 50
+REPEATABLE_OPTIONAL_IDS = frozenset({OptionalId.COMMERCIAL_REFERENCE})
 
 
 class VoucherClass(StrEnum):
@@ -159,6 +166,12 @@ class VoucherDefect(StrEnum):
     ASSOCIATED_POINT_OF_SALE_OUT_OF_RANGE = "associated_point_of_sale_out_of_range"
     ASSOCIATED_NUMBER_OUT_OF_RANGE = "associated_number_out_of_range"
     ASSOCIATED_CUIT_INVALID = "associated_cuit_invalid"
+    CBU_INVALID = "cbu_invalid"
+    CBU_ALIAS_INVALID = "cbu_alias_invalid"
+    TRANSFER_MODE_INVALID = "transfer_mode_invalid"
+    ANNULMENT_CODE_INVALID = "annulment_code_invalid"
+    COMMERCIAL_REFERENCE_INVALID = "commercial_reference_invalid"
+    OPTIONAL_DUPLICATED = "optional_duplicated"
 
 
 class InvalidVoucherError(ValueError):
@@ -236,6 +249,49 @@ class AssociatedVoucher:
             raise InvalidVoucherError(VoucherDefect.ASSOCIATED_CUIT_INVALID)
 
 
+def _is_one_of(codes: type[StrEnum]) -> Callable[[str], bool]:
+    values = {code.value for code in codes}
+    return values.__contains__
+
+
+def _is_commercial_reference(value: str) -> bool:
+    return 0 < len(value) <= MAX_COMMERCIAL_REFERENCE_LENGTH
+
+
+# Developer manual, errors 10165 to 10167, 10189 and 10214 to 10215: the value each optional takes.
+OPTIONAL_VALUE_RULES: dict[OptionalId, tuple[VoucherDefect, Callable[[str], bool]]] = {
+    OptionalId.CBU: (VoucherDefect.CBU_INVALID, lambda value: bool(CBU.fullmatch(value))),
+    OptionalId.CBU_ALIAS: (
+        VoucherDefect.CBU_ALIAS_INVALID,
+        lambda value: bool(CBU_ALIAS.fullmatch(value)),
+    ),
+    OptionalId.TRANSFER_MODE: (VoucherDefect.TRANSFER_MODE_INVALID, _is_one_of(TransferMode)),
+    OptionalId.ANNULMENT: (VoucherDefect.ANNULMENT_CODE_INVALID, _is_one_of(AnnulmentCode)),
+    OptionalId.COMMERCIAL_REFERENCE: (
+        VoucherDefect.COMMERCIAL_REFERENCE_INVALID,
+        _is_commercial_reference,
+    ),
+}
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class VoucherOptional:
+    """One auxiliary field ARCA asks for on some vouchers, such as the CBU of a credit invoice."""
+
+    optional_id: OptionalId
+    value: str
+
+    def __post_init__(self) -> None:
+        """Reject a value ARCA would refuse for this optional.
+
+        Raises:
+            InvalidVoucherError: If the value does not have the shape the optional requires.
+        """
+        defect, is_valid = OPTIONAL_VALUE_RULES[self.optional_id]
+        if not is_valid(self.value):
+            raise InvalidVoucherError(defect)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ServicePeriod:
     """The period a service is billed for and when its payment falls due."""
@@ -277,6 +333,7 @@ class VoucherRequest:
     associated_vouchers: tuple[AssociatedVoucher, ...] = ()
     service_period: ServicePeriod | None = None
     settles_in_foreign_currency: bool | None = None
+    optionals: tuple[VoucherOptional, ...] = ()
 
     @property
     def tributes_total(self) -> Decimal:
@@ -300,6 +357,7 @@ class VoucherRequest:
         _check_class_rules(self)
         _check_associated_vouchers(self)
         _check_tributes(self)
+        _check_optionals(self)
         _check_total(self)
 
 
@@ -406,6 +464,17 @@ def _is_dated_in_a_later_month(associated_date: date | None, note_date: date) ->
 def _check_tributes(request: VoucherRequest) -> None:
     if request.tributes and request.tributes_total == 0:
         raise InvalidVoucherError(VoucherDefect.TRIBUTES_WITHOUT_AMOUNT)
+
+
+def _check_optionals(request: VoucherRequest) -> None:
+    identities = [
+        (optional.optional_id, optional.value)
+        if optional.optional_id in REPEATABLE_OPTIONAL_IDS
+        else (optional.optional_id, None)
+        for optional in request.optionals
+    ]
+    if len(set(identities)) != len(identities):
+        raise InvalidVoucherError(VoucherDefect.OPTIONAL_DUPLICATED)
 
 
 def _check_total(request: VoucherRequest) -> None:

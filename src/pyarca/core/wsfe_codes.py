@@ -1,6 +1,6 @@
 """Closed sets of codes WSFEv1 documents, as ARCA's developer manual lists them."""
 
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 
 
 class VoucherType(IntEnum):
@@ -88,6 +88,30 @@ class ReceiverVatCondition(IntEnum):
     SOCIAL_MONOTAX = 13
     NOT_SUBJECT_TO_VAT = 15
     PROMOTED_INDEPENDENT_MONOTAX = 16
+
+
+class OptionalId(IntEnum):
+    """`Opcional.Id`: the auxiliary fields pyarca sends, as `FEParamGetTiposOpcional` lists them."""
+
+    ANNULMENT = 22
+    COMMERCIAL_REFERENCE = 23
+    TRANSFER_MODE = 27
+    CBU = 2101
+    CBU_ALIAS = 2102
+
+
+class TransferMode(StrEnum):
+    """Optional 27: where the payment of a credit invoice is transferred to."""
+
+    OPEN_CIRCULATION_SYSTEM = "SCA"
+    COLLECTIVE_DEPOSIT_AGENT = "ADC"
+
+
+class AnnulmentCode(StrEnum):
+    """Optional 22: whether a credit or debit note annuls the voucher it is associated to."""
+
+    ANNULMENT = "S"
+    NOT_ANNULMENT = "N"
 
 
 class ArcaErrorCode(IntEnum):
