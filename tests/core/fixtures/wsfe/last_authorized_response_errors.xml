@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hand-written from the WSFEv1 developer manual and WSDL until a homologation response is recorded. -->
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <soap:Body>
+    <FECompUltimoAutorizadoResponse xmlns="http://ar.gov.afip.dif.FEV1/">
+      <FECompUltimoAutorizadoResult>
+        <PtoVta>1</PtoVta>
+        <CbteTipo>6</CbteTipo>
+        <CbteNro>0</CbteNro>
+        <Errors>
+          <Err>
+            <Code>600</Code>
+            <Msg>Error sample: the access ticket is not valid.</Msg>
+          </Err>
+        </Errors>
+      </FECompUltimoAutorizadoResult>
+    </FECompUltimoAutorizadoResponse>
+  </soap:Body>
+</soap:Envelope>

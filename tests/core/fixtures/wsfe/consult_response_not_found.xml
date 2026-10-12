@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hand-written from the WSFEv1 developer manual and WSDL until a homologation response is recorded. -->
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <soap:Body>
+    <FECompConsultarResponse xmlns="http://ar.gov.afip.dif.FEV1/">
+      <FECompConsultarResult>
+        <Errors>
+          <Err>
+            <Code>602</Code>
+            <Msg>Error sample: no data found for the requested voucher.</Msg>
+          </Err>
+        </Errors>
+      </FECompConsultarResult>
+    </FECompConsultarResponse>
+  </soap:Body>
+</soap:Envelope>

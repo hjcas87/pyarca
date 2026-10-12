@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -13,8 +14,13 @@ from pyarca.core.wsfe import (
     ArcaMessage,
     AuthorizationResult,
     build_authorize_request,
+    build_consult_request,
+    build_last_authorized_request,
     parse_authorize_response,
+    parse_consult_response,
+    parse_last_authorized_response,
 )
+from pyarca.core.wsfe_codes import DocumentType, VoucherType
 
 FIXTURES = Path(__file__).parent / "fixtures/wsfe"
 CUIT = 20111111112
@@ -194,3 +200,117 @@ def test_a_response_missing_its_result_is_malformed(response: bytes, element: st
         parse_authorize_response(response)
 
     assert error.value.element == element
+
+
+POINT_OF_SALE = 1
+
+
+def test_a_last_authorized_request_matches_the_recorded_one() -> None:
+    request = build_last_authorized_request(
+        ticket=TICKET, cuit=CUIT, point_of_sale=POINT_OF_SALE, voucher_type=VoucherType.INVOICE_B
+    )
+
+    expected = (FIXTURES / "last_authorized_request.xml").read_bytes()
+    assert _canonical(request) == _canonical(expected)
+
+
+def test_a_consult_request_matches_the_recorded_one() -> None:
+    request = build_consult_request(
+        ticket=TICKET,
+        cuit=CUIT,
+        point_of_sale=POINT_OF_SALE,
+        voucher_type=VoucherType.INVOICE_B,
+        voucher_number=VOUCHER_NUMBER,
+    )
+
+    expected = (FIXTURES / "consult_request.xml").read_bytes()
+    assert _canonical(request) == _canonical(expected)
+
+
+def test_consulting_a_voucher_number_outside_arcas_range_is_rejected() -> None:
+    with pytest.raises(InvalidVoucherError) as error:
+        build_consult_request(
+            ticket=TICKET,
+            cuit=CUIT,
+            point_of_sale=POINT_OF_SALE,
+            voucher_type=VoucherType.INVOICE_B,
+            voucher_number=0,
+        )
+
+    assert error.value.defect == VoucherDefect.VOUCHER_NUMBER_OUT_OF_RANGE
+
+
+def test_the_last_authorized_number_is_read_from_the_response() -> None:
+    last = parse_last_authorized_response(_fixture("last_authorized_response.xml"))
+
+    assert last.voucher_number == VOUCHER_NUMBER - 1
+    assert last.errors == ()
+
+
+def test_the_errors_of_a_last_authorized_response_are_reported() -> None:
+    last = parse_last_authorized_response(_fixture("last_authorized_response_errors.xml"))
+
+    assert [message.code for message in last.errors] == [600]
+
+
+def test_an_authorized_voucher_is_read_from_a_consult_response() -> None:
+    consultation = parse_consult_response(_fixture("consult_response.xml"))
+
+    voucher = consultation.voucher
+    assert voucher is not None
+    assert voucher.result == AuthorizationResult.APPROVED
+    assert voucher.voucher_number == VOUCHER_NUMBER
+    assert voucher.voucher_date == date(2026, 10, 12)
+    assert voucher.document_type == DocumentType.FINAL_CONSUMER
+    assert voucher.document_number == 0
+    assert voucher.total == Decimal(121)
+    assert voucher.cae == "76412345678901"
+    assert voucher.cae_due_date == date(2026, 10, 22)
+    assert consultation.errors == ()
+
+
+def test_a_voucher_that_does_not_exist_is_reported_through_its_errors() -> None:
+    consultation = parse_consult_response(_fixture("consult_response_not_found.xml"))
+
+    assert consultation.voucher is None
+    assert [message.code for message in consultation.errors] == [602]
+
+
+def test_a_consult_response_with_an_unreadable_total_is_malformed() -> None:
+    response = _fixture("consult_response.xml").replace(b"<ImpTotal>121", b"<ImpTotal>many")
+
+    with pytest.raises(MalformedResponseError) as error:
+        parse_consult_response(response)
+
+    assert error.value.defect == ResponseDefect.INVALID_NUMBER
+    assert error.value.element == "ImpTotal"
+
+
+def test_a_consult_response_with_neither_a_voucher_nor_errors_is_malformed() -> None:
+    response = (
+        _fixture("consult_response_not_found.xml")
+        .replace(b"<Errors>", b"<Nothing>")
+        .replace(b"</Errors>", b"</Nothing>")
+    )
+
+    with pytest.raises(MalformedResponseError) as error:
+        parse_consult_response(response)
+
+    assert error.value.element == "ResultGet"
+
+
+@pytest.mark.parametrize(
+    "parse", [parse_last_authorized_response, parse_consult_response], ids=["last", "consult"]
+)
+def test_a_soap_fault_is_raised_by_every_parser(parse: Callable[[bytes], object]) -> None:
+    with pytest.raises(SoapFaultError):
+        parse(_fixture("fault.xml"))
+
+
+def test_a_last_authorized_response_missing_the_number_is_malformed() -> None:
+    response = _fixture("last_authorized_response.xml").replace(b"CbteNro", b"Other")
+
+    with pytest.raises(MalformedResponseError) as error:
+        parse_last_authorized_response(response)
+
+    assert error.value.element == "CbteNro"
