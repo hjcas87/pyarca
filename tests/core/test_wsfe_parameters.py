@@ -1,5 +1,6 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from lxml import etree
@@ -27,6 +28,7 @@ from pyarca.core.wsfe_parameters import (
 )
 from pyarca.core.wsfe_xml import ArcaMessage
 
+FIXTURES = Path(__file__).parent / "fixtures/wsfe"
 CUIT = 20111111112
 TICKET = AccessTicket(token="TOKEN", sign="SIGN", expires_at=datetime(2026, 10, 13, tzinfo=UTC))
 SOAP = "http://schemas.xmlsoap.org/soap/envelope/"
@@ -113,6 +115,12 @@ def test_a_ping_answer_names_the_state_of_each_server() -> None:
 
     assert status == ServerStatus(application="OK", database="OK", authentication="DOWN")
     assert not status.is_operational
+
+
+def test_the_ping_answer_homologation_gave_is_operational() -> None:
+    answer = (FIXTURES / "ping_response.xml").read_bytes()
+
+    assert parse_ping_response(answer).is_operational
 
 
 def test_a_ping_answer_with_every_server_up_is_operational() -> None:
