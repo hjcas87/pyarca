@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 
 from lxml import etree
@@ -22,6 +22,7 @@ from pyarca.core.voucher import (
     VoucherRequest,
 )
 from pyarca.core.wsaa import AccessTicket
+from pyarca.core.wsfe_codes import VoucherType
 
 WSFE_NAMESPACE = "http://ar.gov.afip.dif.FEV1/"
 VOUCHER_DATE_FORMAT = "%Y%m%d"
@@ -47,16 +48,8 @@ def build_authorize_request(
     Raises:
         InvalidVoucherError: If `voucher_number` is outside the range ARCA accepts.
     """
-    if not 1 <= voucher_number <= MAX_VOUCHER_NUMBER:
-        raise InvalidVoucherError(VoucherDefect.VOUCHER_NUMBER_OUT_OF_RANGE)
-
-    envelope = etree.Element(
-        etree.QName(SOAP_ENVELOPE_NAMESPACE, "Envelope"),
-        nsmap={"soapenv": SOAP_ENVELOPE_NAMESPACE, "ar": WSFE_NAMESPACE},
-    )
-    body = etree.SubElement(envelope, etree.QName(SOAP_ENVELOPE_NAMESPACE, "Body"))
-    operation = etree.SubElement(body, _name("FECAESolicitar"))
-    _add_auth(operation, ticket=ticket, cuit=cuit)
+    _check_voucher_number(voucher_number)
+    envelope, operation = _start_request("FECAESolicitar", ticket=ticket, cuit=cuit)
     request = etree.SubElement(operation, _name("FeCAEReq"))
     header = etree.SubElement(request, _name("FeCabReq"))
     _add_text(header, "CantReg", SINGLE_VOUCHER_COUNT)
@@ -64,6 +57,80 @@ def build_authorize_request(
     _add_text(header, "CbteTipo", voucher.voucher_type.value)
     details = etree.SubElement(request, _name("FeDetReq"))
     _add_detail(details, voucher=voucher, voucher_number=voucher_number)
+    return _serialize(envelope)
+
+
+def build_last_authorized_request(
+    *, ticket: AccessTicket, cuit: int, point_of_sale: int, voucher_type: VoucherType
+) -> bytes:
+    """Build the SOAP request for WSFE `FECompUltimoAutorizado`.
+
+    Args:
+        ticket: The access ticket WSAA issued for WSFE.
+        cuit: The issuer's CUIT.
+        point_of_sale: The point of sale to ask about.
+        voucher_type: The voucher type to ask about.
+
+    Returns:
+        The SOAP envelope as UTF-8 XML bytes.
+    """
+    envelope, operation = _start_request("FECompUltimoAutorizado", ticket=ticket, cuit=cuit)
+    _add_text(operation, "PtoVta", point_of_sale)
+    _add_text(operation, "CbteTipo", voucher_type.value)
+    return _serialize(envelope)
+
+
+def build_consult_request(
+    *,
+    ticket: AccessTicket,
+    cuit: int,
+    point_of_sale: int,
+    voucher_type: VoucherType,
+    voucher_number: int,
+) -> bytes:
+    """Build the SOAP request for WSFE `FECompConsultar`, asking for one issued voucher.
+
+    Args:
+        ticket: The access ticket WSAA issued for WSFE.
+        cuit: The issuer's CUIT.
+        point_of_sale: The point of sale the voucher was issued from.
+        voucher_type: The voucher type.
+        voucher_number: The voucher number.
+
+    Returns:
+        The SOAP envelope as UTF-8 XML bytes.
+
+    Raises:
+        InvalidVoucherError: If `voucher_number` is outside the range ARCA accepts.
+    """
+    _check_voucher_number(voucher_number)
+    envelope, operation = _start_request("FECompConsultar", ticket=ticket, cuit=cuit)
+    query = etree.SubElement(operation, _name("FeCompConsReq"))
+    _add_text(query, "CbteTipo", voucher_type.value)
+    _add_text(query, "CbteNro", voucher_number)
+    _add_text(query, "PtoVta", point_of_sale)
+    return _serialize(envelope)
+
+
+def _check_voucher_number(voucher_number: int) -> None:
+    if not 1 <= voucher_number <= MAX_VOUCHER_NUMBER:
+        raise InvalidVoucherError(VoucherDefect.VOUCHER_NUMBER_OUT_OF_RANGE)
+
+
+def _start_request(
+    operation: str, *, ticket: AccessTicket, cuit: int
+) -> tuple[etree._Element, etree._Element]:
+    envelope = etree.Element(
+        etree.QName(SOAP_ENVELOPE_NAMESPACE, "Envelope"),
+        nsmap={"soapenv": SOAP_ENVELOPE_NAMESPACE, "ar": WSFE_NAMESPACE},
+    )
+    body = etree.SubElement(envelope, etree.QName(SOAP_ENVELOPE_NAMESPACE, "Body"))
+    element = etree.SubElement(body, _name(operation))
+    _add_auth(element, ticket=ticket, cuit=cuit)
+    return envelope, element
+
+
+def _serialize(envelope: etree._Element) -> bytes:
     return etree.tostring(envelope, xml_declaration=True, encoding="UTF-8")
 
 
@@ -155,14 +222,7 @@ def parse_authorize_response(response: bytes) -> VoucherAuthorization:
         SoapFaultError: If the service answered with a SOAP fault.
         MalformedResponseError: If the response lacks what the service documents.
     """
-    envelope = parse_xml(response)
-    fault = find_fault(envelope)
-    if fault is not None:
-        raise fault
-
-    result = envelope.find(f".//{_q('FECAESolicitarResult')}")
-    if result is None:
-        raise MalformedResponseError(ResponseDefect.MISSING_ELEMENT, "FECAESolicitarResult")
+    result = _result_element(response, "FECAESolicitarResult")
     errors = _messages(result, "Errors/Err")
     events = _messages(result, "Events/Evt")
     detail = result.find(_q("FeDetResp/FECAEDetResponse"))
@@ -184,6 +244,83 @@ def parse_authorize_response(response: bytes) -> VoucherAuthorization:
     )
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class LastAuthorized:
+    """ARCA's answer to `FECompUltimoAutorizado`."""
+
+    voucher_number: int
+    errors: tuple[ArcaMessage, ...]
+    events: tuple[ArcaMessage, ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ConsultedVoucher:
+    """A voucher ARCA has on record, as `FECompConsultar` returns it."""
+
+    result: AuthorizationResult
+    voucher_number: int
+    voucher_date: date
+    document_type: int
+    document_number: int
+    total: Decimal
+    cae: str
+    cae_due_date: date
+    observations: tuple[ArcaMessage, ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class VoucherConsultation:
+    """ARCA's answer to `FECompConsultar`; `voucher` is empty if ARCA has none."""
+
+    voucher: ConsultedVoucher | None
+    errors: tuple[ArcaMessage, ...]
+    events: tuple[ArcaMessage, ...]
+
+
+def parse_last_authorized_response(response: bytes) -> LastAuthorized:
+    """Read ARCA's answer to `FECompUltimoAutorizado`.
+
+    Raises:
+        SoapFaultError: If the service answered with a SOAP fault.
+        MalformedResponseError: If the response lacks what the service documents.
+    """
+    result = _result_element(response, "FECompUltimoAutorizadoResult")
+    return LastAuthorized(
+        voucher_number=_integer(result, "CbteNro"),
+        errors=_messages(result, "Errors/Err"),
+        events=_messages(result, "Events/Evt"),
+    )
+
+
+def parse_consult_response(response: bytes) -> VoucherConsultation:
+    """Read ARCA's answer to `FECompConsultar`.
+
+    Raises:
+        SoapFaultError: If the service answered with a SOAP fault.
+        MalformedResponseError: If the response has neither the voucher nor errors.
+    """
+    result = _result_element(response, "FECompConsultarResult")
+    errors = _messages(result, "Errors/Err")
+    events = _messages(result, "Events/Evt")
+    found = result.find(_q("ResultGet"))
+    if found is None:
+        if not errors:
+            raise MalformedResponseError(ResponseDefect.MISSING_ELEMENT, "ResultGet")
+        return VoucherConsultation(voucher=None, errors=errors, events=events)
+    voucher = ConsultedVoucher(
+        result=_authorization_result(_text(found, "Resultado")),
+        voucher_number=_integer(found, "CbteDesde"),
+        voucher_date=_date(found, "CbteFch"),
+        document_type=_integer(found, "DocTipo"),
+        document_number=_integer(found, "DocNro"),
+        total=_decimal(found, "ImpTotal"),
+        cae=_text(found, "CodAutorizacion"),
+        cae_due_date=_date(found, "FchVto"),
+        observations=_messages(found, "Observaciones/Obs"),
+    )
+    return VoucherConsultation(voucher=voucher, errors=errors, events=events)
+
+
 def _rejection_without_detail(
     *, errors: tuple[ArcaMessage, ...], events: tuple[ArcaMessage, ...]
 ) -> VoucherAuthorization:
@@ -199,6 +336,17 @@ def _rejection_without_detail(
         errors=errors,
         events=events,
     )
+
+
+def _result_element(response: bytes, tag: str) -> etree._Element:
+    envelope = parse_xml(response)
+    fault = find_fault(envelope)
+    if fault is not None:
+        raise fault
+    result = envelope.find(f".//{_q(tag)}")
+    if result is None:
+        raise MalformedResponseError(ResponseDefect.MISSING_ELEMENT, tag)
+    return result
 
 
 def _q(path: str) -> str:
@@ -223,6 +371,13 @@ def _integer(element: etree._Element, tag: str) -> int:
     try:
         return int(_text(element, tag))
     except ValueError as error:
+        raise MalformedResponseError(ResponseDefect.INVALID_NUMBER, tag) from error
+
+
+def _decimal(element: etree._Element, tag: str) -> Decimal:
+    try:
+        return Decimal(_text(element, tag))
+    except InvalidOperation as error:
         raise MalformedResponseError(ResponseDefect.INVALID_NUMBER, tag) from error
 
 

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-written from the WSFEv1 WSDL. Token and sign are placeholders. -->
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:ar="http://ar.gov.afip.dif.FEV1/">
+  <soapenv:Body>
+    <ar:FECompUltimoAutorizado>
+      <ar:Auth>
+        <ar:Token>TOKEN</ar:Token>
+        <ar:Sign>SIGN</ar:Sign>
+        <ar:Cuit>20111111112</ar:Cuit>
+      </ar:Auth>
+      <ar:PtoVta>1</ar:PtoVta>
+      <ar:CbteTipo>6</ar:CbteTipo>
+    </ar:FECompUltimoAutorizado>
+  </soapenv:Body>
+</soapenv:Envelope>
