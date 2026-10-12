@@ -55,6 +55,11 @@ class CmsSigner(Signer):
             raise UnsupportedKeyError(type(private_key))
         return cls(certificate=certificate, private_key=private_key)
 
+    @property
+    def certificate_id(self) -> str:
+        """Return the SHA-256 fingerprint of the certificate, in hex."""
+        return self._certificate.fingerprint(hashes.SHA256()).hex()
+
     def sign(self, data: bytes) -> bytes:
         """Return `data` wrapped in a CMS signed structure, DER encoded."""
         return (

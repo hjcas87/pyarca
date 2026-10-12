@@ -68,6 +68,7 @@ max-complexity = 8
 "os.urandom".msg = "Take random values as arguments."
 
 [tool.ruff.lint.per-file-ignores]
+"src/pyarca/shell/clock.py" = ["TID251"] # the one module that owns the system clock
 "tests/**" = [
     "S101",   # assert is how pytest works
     "D",      # tests are named sentences, not documented APIs
