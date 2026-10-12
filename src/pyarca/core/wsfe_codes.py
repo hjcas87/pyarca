@@ -75,3 +75,4 @@ class ArcaErrorCode(IntEnum):
     """Codes of ARCA errors and observations that callers act on."""
 
     VOUCHER_OUT_OF_SEQUENCE = 10016
+    NO_DATA_FOUND = 602
