@@ -25,6 +25,12 @@ from pyarca.core.wsfe_codes import DocumentType, VoucherType
 FIXTURES = Path(__file__).parent / "fixtures/wsfe"
 CUIT = 20111111112
 VOUCHER_NUMBER = 7
+RECORDED_CUIT = 20111111112
+RECORDED_VOUCHER_NUMBER = 1
+RECORDED_CAE = "86410988009458"
+RECORDED_TICKET = AccessTicket(
+    token="REDACTED", sign="REDACTED", expires_at=datetime(2026, 10, 13, tzinfo=UTC)
+)
 TICKET = AccessTicket(token="TOKEN", sign="SIGN", expires_at=datetime(2026, 10, 13, tzinfo=UTC))
 
 
@@ -51,9 +57,14 @@ def test_an_invoice_b_request_matches_the_recorded_one(invoice_b: VoucherRequest
     assert _canonical(request) == _canonical(expected)
 
 
-def test_an_invoice_c_request_states_no_vat(invoice_c: VoucherRequest) -> None:
+def test_an_invoice_c_request_matches_the_one_homologation_authorized(
+    invoice_c: VoucherRequest,
+) -> None:
     request = build_authorize_request(
-        ticket=TICKET, cuit=CUIT, voucher=invoice_c, voucher_number=VOUCHER_NUMBER
+        ticket=RECORDED_TICKET,
+        cuit=RECORDED_CUIT,
+        voucher=invoice_c,
+        voucher_number=RECORDED_VOUCHER_NUMBER,
     )
 
     expected = (FIXTURES / "authorize_request_invoice_c.xml").read_bytes()
@@ -80,8 +91,8 @@ def test_an_approved_response_yields_the_cae_and_its_due_date() -> None:
     authorization = parse_authorize_response(_fixture("authorize_response_approved.xml"))
 
     assert authorization.result == AuthorizationResult.APPROVED
-    assert authorization.voucher_number == VOUCHER_NUMBER
-    assert authorization.cae == "76412345678901"
+    assert authorization.voucher_number == RECORDED_VOUCHER_NUMBER
+    assert authorization.cae == RECORDED_CAE
     assert authorization.cae_due_date == date(2026, 10, 22)
     assert authorization.observations == ()
     assert authorization.errors == ()
@@ -130,7 +141,7 @@ def test_a_soap_fault_is_raised_with_its_code() -> None:
 @pytest.mark.parametrize(
     ("old", "new", "defect", "element"),
     [
-        (b"<CAE>76412345678901</CAE>", b"<CAE></CAE>", ResponseDefect.MISSING_ELEMENT, "CAE"),
+        (b"<CAE>86410988009458</CAE>", b"<CAE></CAE>", ResponseDefect.MISSING_ELEMENT, "CAE"),
         (
             b"<CAEFchVto>20261022</CAEFchVto>",
             b"<CAEFchVto>2026-10-22</CAEFchVto>",
@@ -138,14 +149,14 @@ def test_a_soap_fault_is_raised_with_its_code() -> None:
             "CAEFchVto",
         ),
         (
-            b"<CbteDesde>7</CbteDesde>",
+            b"<CbteDesde>1</CbteDesde>",
             b"<CbteDesde>seven</CbteDesde>",
             ResponseDefect.INVALID_NUMBER,
             "CbteDesde",
         ),
         (
-            b"<Resultado>A</Resultado>\n            <CAE>",
-            b"<Resultado>X</Resultado>\n            <CAE>",
+            b"<Resultado>A</Resultado><CAE>",
+            b"<Resultado>X</Resultado><CAE>",
             ResponseDefect.INVALID_VALUE,
             "Resultado",
         ),
@@ -181,7 +192,7 @@ def test_a_response_with_neither_a_result_nor_errors_is_malformed() -> None:
     [
         (
             _fixture("authorize_response_approved.xml").replace(
-                b"<Resultado>A</Resultado>\n            <CAE>", b"<CAE>"
+                b"<Resultado>A</Resultado><CAE>", b"<CAE>"
             ),
             "Resultado",
         ),

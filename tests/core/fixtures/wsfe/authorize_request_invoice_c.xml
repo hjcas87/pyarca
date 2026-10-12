@@ -1,40 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Hand-written from the field order of ARCA's WSFEv1 WSDL. Token and sign are placeholders. -->
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-                  xmlns:ar="http://ar.gov.afip.dif.FEV1/">
-  <soapenv:Body>
-    <ar:FECAESolicitar>
-      <ar:Auth>
-        <ar:Token>TOKEN</ar:Token>
-        <ar:Sign>SIGN</ar:Sign>
-        <ar:Cuit>20111111112</ar:Cuit>
-      </ar:Auth>
-      <ar:FeCAEReq>
-        <ar:FeCabReq>
-          <ar:CantReg>1</ar:CantReg>
-          <ar:PtoVta>1</ar:PtoVta>
-          <ar:CbteTipo>11</ar:CbteTipo>
-        </ar:FeCabReq>
-        <ar:FeDetReq>
-          <ar:FECAEDetRequest>
-            <ar:Concepto>1</ar:Concepto>
-            <ar:DocTipo>99</ar:DocTipo>
-            <ar:DocNro>0</ar:DocNro>
-            <ar:CbteDesde>7</ar:CbteDesde>
-            <ar:CbteHasta>7</ar:CbteHasta>
-            <ar:CbteFch>20261012</ar:CbteFch>
-            <ar:ImpTotal>100.50</ar:ImpTotal>
-            <ar:ImpTotConc>0.00</ar:ImpTotConc>
-            <ar:ImpNeto>100.50</ar:ImpNeto>
-            <ar:ImpOpEx>0.00</ar:ImpOpEx>
-            <ar:ImpTrib>0.00</ar:ImpTrib>
-            <ar:ImpIVA>0.00</ar:ImpIVA>
-            <ar:MonId>PES</ar:MonId>
-            <ar:MonCotiz>1</ar:MonCotiz>
-            <ar:CondicionIVAReceptorId>5</ar:CondicionIVAReceptorId>
-          </ar:FECAEDetRequest>
-        </ar:FeDetReq>
-      </ar:FeCAEReq>
-    </ar:FECAESolicitar>
-  </soapenv:Body>
-</soapenv:Envelope>
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Recorded from the WSFEv1 homologation service on 2026-10-12 (Factura C, number 1). Token and sign redacted. -->
+
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ar="http://ar.gov.afip.dif.FEV1/"><soapenv:Body><ar:FECAESolicitar><ar:Auth><ar:Token>REDACTED</ar:Token><ar:Sign>REDACTED</ar:Sign><ar:Cuit>20111111112</ar:Cuit></ar:Auth><ar:FeCAEReq><ar:FeCabReq><ar:CantReg>1</ar:CantReg><ar:PtoVta>1</ar:PtoVta><ar:CbteTipo>11</ar:CbteTipo></ar:FeCabReq><ar:FeDetReq><ar:FECAEDetRequest><ar:Concepto>1</ar:Concepto><ar:DocTipo>99</ar:DocTipo><ar:DocNro>0</ar:DocNro><ar:CbteDesde>1</ar:CbteDesde><ar:CbteHasta>1</ar:CbteHasta><ar:CbteFch>20261012</ar:CbteFch><ar:ImpTotal>100.00</ar:ImpTotal><ar:ImpTotConc>0.00</ar:ImpTotConc><ar:ImpNeto>100.00</ar:ImpNeto><ar:ImpOpEx>0.00</ar:ImpOpEx><ar:ImpTrib>0.00</ar:ImpTrib><ar:ImpIVA>0.00</ar:ImpIVA><ar:MonId>PES</ar:MonId><ar:MonCotiz>1</ar:MonCotiz><ar:CondicionIVAReceptorId>5</ar:CondicionIVAReceptorId></ar:FECAEDetRequest></ar:FeDetReq></ar:FeCAEReq></ar:FECAESolicitar></soapenv:Body></soapenv:Envelope>

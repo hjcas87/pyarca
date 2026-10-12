@@ -113,7 +113,7 @@ def test_authorize_numbers_the_voucher_one_past_the_last_authorized(
     authorization = _client(transport).authorize(invoice_b)
 
     assert authorization.result == AuthorizationResult.APPROVED
-    assert authorization.cae == "76412345678901"
+    assert authorization.cae == "86410988009458"
     assert transport.posts[1] == (
         URL,
         build_authorize_request(
