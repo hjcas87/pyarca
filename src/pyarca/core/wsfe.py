@@ -169,6 +169,7 @@ def _add_detail(parent: etree._Element, *, voucher: VoucherRequest, voucher_numb
     _add_text(detail, "ImpTrib", format_amount(voucher.tributes_total))
     _add_text(detail, "ImpIVA", format_amount(voucher.vat_total))
     _add_service_period(detail, voucher)
+    _add_payment_due(detail, voucher)
     _add_text(detail, "MonId", voucher.currency)
     _add_text(detail, "MonCotiz", format(voucher.exchange_rate, "f"))
     if voucher.settles_in_foreign_currency is not None:
@@ -192,7 +193,12 @@ def _add_service_period(parent: etree._Element, voucher: VoucherRequest) -> None
         return
     _add_text(parent, "FchServDesde", period.service_from.strftime(VOUCHER_DATE_FORMAT))
     _add_text(parent, "FchServHasta", period.service_to.strftime(VOUCHER_DATE_FORMAT))
-    _add_text(parent, "FchVtoPago", period.payment_due.strftime(VOUCHER_DATE_FORMAT))
+
+
+def _add_payment_due(parent: etree._Element, voucher: VoucherRequest) -> None:
+    if voucher.payment_due is None:
+        return
+    _add_text(parent, "FchVtoPago", voucher.payment_due.strftime(VOUCHER_DATE_FORMAT))
 
 
 def _add_associated_vouchers(parent: etree._Element, voucher: VoucherRequest) -> None:

@@ -217,7 +217,7 @@ def test_a_final_consumer_must_carry_document_number_zero() -> None:
 @pytest.mark.parametrize(
     ("overrides", "defect"),
     [
-        ({"voucher_type": VoucherType.FCE_INVOICE_A}, VoucherDefect.UNSUPPORTED_VOUCHER_TYPE),
+        ({"voucher_type": VoucherType.RECEIPT_B}, VoucherDefect.UNSUPPORTED_VOUCHER_TYPE),
     ],
 )
 def test_what_this_version_cannot_authorize_is_rejected(
@@ -587,4 +587,194 @@ def test_a_voucher_may_carry_several_commercial_references() -> None:
 def test_a_commercial_reference_repeated_with_the_same_value_is_rejected() -> None:
     assert _defect_of(lambda: _invoice_b(optionals=(_reference("OC-1"), _reference("OC-1")))) == (
         VoucherDefect.OPTIONAL_DUPLICATED
+    )
+
+
+def _cbu() -> VoucherOptional:
+    return VoucherOptional(optional_id=OptionalId.CBU, value=VALID_CBU)
+
+
+def _transfer() -> VoucherOptional:
+    return VoucherOptional(
+        optional_id=OptionalId.TRANSFER_MODE, value=TransferMode.OPEN_CIRCULATION_SYSTEM
+    )
+
+
+def _fce_invoice(voucher_type: VoucherType, **overrides: object) -> VoucherRequest:
+    defaults: dict[str, object] = {
+        "document_type": DocumentType.CUIT,
+        "document_number": 20111111112,
+        "receiver_vat_condition": ReceiverVatCondition.REGISTERED_COMPANY,
+        "payment_due_date": date(2026, 11, 10),
+        "optionals": (_cbu(), _transfer()),
+    }
+    builders = {
+        VoucherType.FCE_INVOICE_A: _invoice_a,
+        VoucherType.FCE_INVOICE_B: _invoice_b,
+        VoucherType.FCE_INVOICE_C: _invoice_c,
+    }
+    return builders[voucher_type](voucher_type=voucher_type, **{**defaults, **overrides})
+
+
+FCE_INVOICE_TYPES = [
+    VoucherType.FCE_INVOICE_A,
+    VoucherType.FCE_INVOICE_B,
+    VoucherType.FCE_INVOICE_C,
+]
+
+
+@pytest.mark.parametrize("voucher_type", FCE_INVOICE_TYPES)
+def test_a_complete_fce_invoice_is_accepted(voucher_type: VoucherType) -> None:
+    assert _fce_invoice(voucher_type).voucher_type == voucher_type
+
+
+@pytest.mark.parametrize("voucher_type", FCE_INVOICE_TYPES)
+def test_an_fce_invoice_without_a_payment_due_date_is_rejected(voucher_type: VoucherType) -> None:
+    assert _defect_of(lambda: _fce_invoice(voucher_type, payment_due_date=None)) == (
+        VoucherDefect.PAYMENT_DUE_REQUIRED
+    )
+
+
+def test_an_fce_invoice_takes_its_payment_due_date_from_the_service_period() -> None:
+    request = _fce_invoice(
+        VoucherType.FCE_INVOICE_C,
+        payment_due_date=None,
+        concept=Concept.SERVICES,
+        service_period=SERVICE_PERIOD,
+    )
+
+    assert request.payment_due == SERVICE_PERIOD.payment_due
+
+
+def test_a_payment_due_date_given_beside_a_service_period_is_rejected() -> None:
+    assert _defect_of(
+        lambda: _fce_invoice(
+            VoucherType.FCE_INVOICE_C, concept=Concept.SERVICES, service_period=SERVICE_PERIOD
+        )
+    ) == (VoucherDefect.PAYMENT_DUE_GIVEN_TWICE)
+
+
+def test_a_payment_due_date_before_the_voucher_date_is_rejected() -> None:
+    assert _defect_of(
+        lambda: _fce_invoice(VoucherType.FCE_INVOICE_C, payment_due_date=date(2026, 10, 11))
+    ) == (VoucherDefect.PAYMENT_DUE_BEFORE_VOUCHER_DATE)
+
+
+@pytest.mark.parametrize(
+    ("optionals", "defect"),
+    [
+        ((_transfer(),), VoucherDefect.CBU_REQUIRED),
+        ((_cbu(),), VoucherDefect.TRANSFER_MODE_REQUIRED),
+        (
+            (
+                _cbu(),
+                _transfer(),
+                VoucherOptional(
+                    optional_id=OptionalId.ANNULMENT, value=AnnulmentCode.NOT_ANNULMENT
+                ),
+            ),
+            VoucherDefect.OPTIONAL_NOT_ALLOWED,
+        ),
+    ],
+)
+def test_an_fce_invoice_needs_its_cbu_and_transfer_mode_and_no_annulment_code(
+    optionals: tuple[VoucherOptional, ...], defect: VoucherDefect
+) -> None:
+    assert (
+        _defect_of(lambda: _fce_invoice(VoucherType.FCE_INVOICE_C, optionals=optionals)) == defect
+    )
+
+
+def test_an_fce_invoice_may_state_the_cbu_alias_and_a_commercial_reference() -> None:
+    alias = VoucherOptional(optional_id=OptionalId.CBU_ALIAS, value="MI.ALIAS.CBU")
+
+    request = _fce_invoice(
+        VoucherType.FCE_INVOICE_C, optionals=(_cbu(), alias, _transfer(), _reference("OC-1"))
+    )
+
+    assert [optional.optional_id for optional in request.optionals] == [
+        OptionalId.CBU,
+        OptionalId.CBU_ALIAS,
+        OptionalId.TRANSFER_MODE,
+        OptionalId.COMMERCIAL_REFERENCE,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("voucher_type", "condition"),
+    [
+        (VoucherType.FCE_INVOICE_A, ReceiverVatCondition.EXEMPT),
+        (VoucherType.FCE_INVOICE_A, ReceiverVatCondition.FINAL_CONSUMER),
+        (VoucherType.FCE_INVOICE_B, ReceiverVatCondition.FINAL_CONSUMER),
+        (VoucherType.FCE_INVOICE_C, ReceiverVatCondition.NOT_CATEGORIZED),
+    ],
+)
+def test_an_fce_invoice_rejects_a_receiver_condition_its_letter_does_not_take(
+    voucher_type: VoucherType, condition: ReceiverVatCondition
+) -> None:
+    assert _defect_of(lambda: _fce_invoice(voucher_type, receiver_vat_condition=condition)) == (
+        VoucherDefect.RECEIVER_CONDITION_NOT_ALLOWED
+    )
+
+
+@pytest.mark.parametrize(
+    ("voucher_type", "condition"),
+    [
+        (VoucherType.FCE_INVOICE_A, ReceiverVatCondition.MONOTAX),
+        (VoucherType.FCE_INVOICE_B, ReceiverVatCondition.EXEMPT),
+        (VoucherType.FCE_INVOICE_C, ReceiverVatCondition.EXEMPT),
+    ],
+)
+def test_an_fce_invoice_takes_the_receiver_conditions_of_its_letter(
+    voucher_type: VoucherType, condition: ReceiverVatCondition
+) -> None:
+    assert _fce_invoice(voucher_type, receiver_vat_condition=condition).voucher_type == (
+        voucher_type
+    )
+
+
+@pytest.mark.parametrize("voucher_type", FCE_INVOICE_TYPES)
+def test_an_fce_invoice_cannot_be_issued_to_the_not_categorized_receiver(
+    voucher_type: VoucherType,
+) -> None:
+    assert _defect_of(lambda: _fce_invoice(voucher_type, document_number=23_000_000_000)) == (
+        VoucherDefect.FCE_RECEIVER_NOT_ALLOWED
+    )
+
+
+def test_an_fce_invoice_keeps_the_amount_rules_of_its_letter() -> None:
+    assert _defect_of(
+        lambda: _fce_invoice(VoucherType.FCE_INVOICE_C, vat_total=Decimal("21.00"))
+    ) == (VoucherDefect.VAT_NOT_ALLOWED)
+    assert _defect_of(
+        lambda: _fce_invoice(VoucherType.FCE_INVOICE_B, vat_lines=(), vat_total=Decimal(0))
+    ) == (VoucherDefect.VAT_REQUIRED)
+
+
+def test_an_fce_invoice_cannot_cancel_another_voucher() -> None:
+    assert _defect_of(
+        lambda: _fce_invoice(
+            VoucherType.FCE_INVOICE_C,
+            associated_vouchers=(_associated(voucher_type=VoucherType.FCE_INVOICE_C),),
+        )
+    ) == (VoucherDefect.ASSOCIATED_VOUCHER_NOT_ALLOWED)
+
+
+@pytest.mark.parametrize(
+    "optional_id",
+    [OptionalId.CBU, OptionalId.CBU_ALIAS, OptionalId.TRANSFER_MODE, OptionalId.ANNULMENT],
+)
+def test_a_voucher_that_is_not_fce_cannot_carry_the_credit_invoice_optionals(
+    optional_id: OptionalId,
+) -> None:
+    values = {
+        OptionalId.CBU: VALID_CBU,
+        OptionalId.CBU_ALIAS: "MI.ALIAS.CBU",
+        OptionalId.TRANSFER_MODE: TransferMode.COLLECTIVE_DEPOSIT_AGENT,
+        OptionalId.ANNULMENT: AnnulmentCode.ANNULMENT,
+    }
+    optional = VoucherOptional(optional_id=optional_id, value=values[optional_id])
+
+    assert _defect_of(lambda: _invoice_b(optionals=(optional,))) == (
+        VoucherDefect.OPTIONAL_NOT_ALLOWED
     )

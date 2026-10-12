@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -14,12 +15,15 @@ from pyarca.core.voucher import (
     AssociatedVoucher,
     Tribute,
     VatLine,
+    VoucherOptional,
     VoucherRequest,
 )
 from pyarca.core.wsfe_codes import (
     Concept,
     DocumentType,
+    OptionalId,
     ReceiverVatCondition,
+    TransferMode,
     TributeType,
     VatRate,
     VoucherType,
@@ -205,6 +209,24 @@ def credit_note_c() -> VoucherRequest:
                 number=5,
                 cuit=20111111112,
                 voucher_date=date(2026, 10, 1),
+            ),
+        ),
+    )
+
+
+@pytest.fixture
+def fce_invoice_c(invoice_c: VoucherRequest) -> VoucherRequest:
+    return replace(
+        invoice_c,
+        voucher_type=VoucherType.FCE_INVOICE_C,
+        document_type=DocumentType.CUIT,
+        document_number=20111111112,
+        receiver_vat_condition=ReceiverVatCondition.REGISTERED_COMPANY,
+        payment_due_date=date(2026, 11, 10),
+        optionals=(
+            VoucherOptional(optional_id=OptionalId.CBU, value="0110012300000012345678"),
+            VoucherOptional(
+                optional_id=OptionalId.TRANSFER_MODE, value=TransferMode.OPEN_CIRCULATION_SYSTEM
             ),
         ),
     )
