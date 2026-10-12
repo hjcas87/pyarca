@@ -83,6 +83,34 @@ def test_an_invoice_a_request_states_its_aliquots_and_tributes_in_the_order_arca
     assert _canonical(request) == _canonical(expected)
 
 
+def test_a_credit_note_carries_the_point_of_sale_of_the_voucher_it_cancels(
+    credit_note_c: VoucherRequest,
+) -> None:
+    request = build_authorize_request(
+        ticket=TICKET, cuit=CUIT, voucher=credit_note_c, voucher_number=VOUCHER_NUMBER
+    )
+
+    expected = (FIXTURES / "authorize_request_credit_note_c.xml").read_bytes()
+    assert _canonical(request) == _canonical(expected)
+
+
+def test_an_associated_voucher_without_cuit_or_date_is_sent_without_them(
+    credit_note_c: VoucherRequest,
+) -> None:
+    (associated,) = credit_note_c.associated_vouchers
+    bare = replace(associated, cuit=None, voucher_date=None)
+
+    request = build_authorize_request(
+        ticket=TICKET,
+        cuit=CUIT,
+        voucher=replace(credit_note_c, associated_vouchers=(bare,)),
+        voucher_number=VOUCHER_NUMBER,
+    )
+
+    (element,) = etree.fromstring(request).iter("{http://ar.gov.afip.dif.FEV1/}CbteAsoc")
+    assert [etree.QName(child).localname for child in element] == ["Tipo", "PtoVta", "Nro"]
+
+
 def test_a_tribute_without_a_description_is_sent_without_one(invoice_a: VoucherRequest) -> None:
     (tribute,) = invoice_a.tributes
     described = replace(tribute, tribute_type=TributeType.GROSS_INCOME, description=None)

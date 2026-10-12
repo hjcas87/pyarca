@@ -170,10 +170,25 @@ def _add_detail(parent: etree._Element, *, voucher: VoucherRequest, voucher_numb
     _add_text(detail, "MonId", voucher.currency)
     _add_text(detail, "MonCotiz", format(voucher.exchange_rate, "f"))
     _add_text(detail, "CondicionIVAReceptorId", voucher.receiver_vat_condition.value)
+    if voucher.associated_vouchers:
+        _add_associated_vouchers(detail, voucher)
     if voucher.tributes:
         _add_tributes(detail, voucher)
     if voucher.vat_lines:
         _add_vat(detail, voucher)
+
+
+def _add_associated_vouchers(parent: etree._Element, voucher: VoucherRequest) -> None:
+    associated = etree.SubElement(parent, _name("CbtesAsoc"))
+    for item in voucher.associated_vouchers:
+        element = etree.SubElement(associated, _name("CbteAsoc"))
+        _add_text(element, "Tipo", item.voucher_type.value)
+        _add_text(element, "PtoVta", item.point_of_sale)
+        _add_text(element, "Nro", item.number)
+        if item.cuit is not None:
+            _add_text(element, "Cuit", item.cuit)
+        if item.voucher_date is not None:
+            _add_text(element, "CbteFch", item.voucher_date.strftime(VOUCHER_DATE_FORMAT))
 
 
 def _add_tributes(parent: etree._Element, voucher: VoucherRequest) -> None:

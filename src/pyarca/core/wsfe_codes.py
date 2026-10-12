@@ -9,12 +9,15 @@ class VoucherType(IntEnum):
     INVOICE_A = 1
     DEBIT_NOTE_A = 2
     CREDIT_NOTE_A = 3
+    RECEIPT_A = 4
     INVOICE_B = 6
     DEBIT_NOTE_B = 7
     CREDIT_NOTE_B = 8
+    RECEIPT_B = 9
     INVOICE_C = 11
     DEBIT_NOTE_C = 12
     CREDIT_NOTE_C = 13
+    RECEIPT_C = 15
     FCE_INVOICE_A = 201
     FCE_DEBIT_NOTE_A = 202
     FCE_CREDIT_NOTE_A = 203
