@@ -86,7 +86,15 @@ warn_unreachable = true
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
 
 [tool.pytest.ini_options]
-addopts = ["--strict-markers", "--strict-config", "--import-mode=importlib", "-ra"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--import-mode=importlib",
+    "-ra",
+    "-m",
+    "not homologation",
+]
+markers = ["homologation: calls the real ARCA homologation service; run with `-m homologation`"]
 filterwarnings = ["error"]
 xfail_strict = true
 
