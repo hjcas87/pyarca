@@ -18,6 +18,7 @@ from pyarca.core.wsfe_codes import (
 PESOS = "PES"
 PESOS_EXCHANGE_RATE = Decimal(1)
 FINAL_CONSUMER_DOCUMENT_NUMBER = 0
+MAX_VOUCHER_NUMBER = 99_999_999
 
 
 class VoucherClass(StrEnum):
@@ -77,6 +78,7 @@ class VoucherDefect(StrEnum):
     VAT_AMOUNT_MISMATCH = "vat_amount_mismatch"
     VAT_BASE_MISMATCH = "vat_base_mismatch"
     TOTAL_MISMATCH = "total_mismatch"
+    VOUCHER_NUMBER_OUT_OF_RANGE = "voucher_number_out_of_range"
 
 
 class InvalidVoucherError(ValueError):
