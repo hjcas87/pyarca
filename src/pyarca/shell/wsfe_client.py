@@ -15,6 +15,7 @@ from pyarca.core.voucher import VoucherClass, VoucherRequest
 from pyarca.core.wsaa import AccessTicket, Service
 from pyarca.core.wsfe import (
     AuthorizationResult,
+    ConsultedVoucher,
     VoucherAuthorization,
     build_authorize_request,
     build_consult_request,
@@ -103,7 +104,7 @@ class VoucherNotAuthorizedError(VoucherOutcomeError):
 class RecoveryFailedError(VoucherOutcomeError):
     """The outcome of a sent authorization is unknown and could not be looked up.
 
-    The caller must reconcile the named voucher later, with `FECompConsultar`, and must not
+    The caller must reconcile the named voucher later, with `WsfeClient.consult`, and must not
     renumber in the meantime.
     """
 
@@ -176,6 +177,28 @@ class WsfeClient:
         if authorization.errors:
             raise ArcaErrorsError(authorization.errors)
         return authorization
+
+    def consult(
+        self, *, point_of_sale: int, voucher_type: VoucherType, voucher_number: int
+    ) -> ConsultedVoucher | None:
+        """Return the voucher ARCA has under the number, or None if it has none.
+
+        Use it to reconcile a voucher named by `RecoveryFailedError`.
+
+        Raises:
+            ArcaErrorsError: If ARCA answers with any error other than having no such voucher.
+        """
+        consultation = parse_consult_response(
+            self._post_consult(
+                ticket=self._ticket_provider.get_access_ticket(Service.WSFE),
+                point_of_sale=point_of_sale,
+                voucher_type=voucher_type,
+                voucher_number=voucher_number,
+            )
+        )
+        if any(message.code != ArcaErrorCode.NO_DATA_FOUND for message in consultation.errors):
+            raise ArcaErrorsError(consultation.errors)
+        return consultation.voucher
 
     def ping(self) -> ServerStatus:
         """Ask WSFE whether its servers are up; this call needs no access ticket."""
@@ -299,16 +322,11 @@ class WsfeClient:
         self, voucher: VoucherRequest, *, number: int, ticket: AccessTicket, cause: Exception
     ) -> VoucherAuthorization:
         try:
-            response = self._transport.post(
-                url=WSFE_ENDPOINTS[self._environment],
-                body=build_consult_request(
-                    ticket=ticket,
-                    cuit=self._cuit,
-                    point_of_sale=voucher.point_of_sale,
-                    voucher_type=voucher.voucher_type,
-                    voucher_number=number,
-                ),
-                soap_action=soap_action(WsfeOperation.CONSULT),
+            response = self._post_consult(
+                ticket=ticket,
+                point_of_sale=voucher.point_of_sale,
+                voucher_type=voucher.voucher_type,
+                voucher_number=number,
             )
             resolution = resolve_ambiguous(voucher, number, parse_consult_response(response))
         except CONSULTATION_FAILURES as error:
@@ -324,6 +342,26 @@ class WsfeClient:
                 voucher_number=number,
             ) from cause
         return resolution
+
+    def _post_consult(
+        self,
+        *,
+        ticket: AccessTicket,
+        point_of_sale: int,
+        voucher_type: VoucherType,
+        voucher_number: int,
+    ) -> bytes:
+        return self._transport.post(
+            url=WSFE_ENDPOINTS[self._environment],
+            body=build_consult_request(
+                ticket=ticket,
+                cuit=self._cuit,
+                point_of_sale=point_of_sale,
+                voucher_type=voucher_type,
+                voucher_number=voucher_number,
+            ),
+            soap_action=soap_action(WsfeOperation.CONSULT),
+        )
 
     def _raise_out_of_sequence(
         self, authorization: VoucherAuthorization, voucher: VoucherRequest
