@@ -11,19 +11,17 @@ from pyarca.core.soap import MalformedResponseError, SoapFaultError
 from pyarca.core.voucher import VoucherRequest
 from pyarca.core.wsaa import AccessTicket, Service
 from pyarca.core.wsfe import (
-    ArcaMessage,
     AuthorizationResult,
     VoucherAuthorization,
-    WsfeOperation,
     build_authorize_request,
     build_consult_request,
     build_last_authorized_request,
     parse_authorize_response,
     parse_consult_response,
     parse_last_authorized_response,
-    soap_action,
 )
 from pyarca.core.wsfe_codes import ArcaErrorCode, VoucherType
+from pyarca.core.wsfe_xml import ArcaMessage, WsfeOperation, soap_action
 from pyarca.shell.endpoints import WSFE_ENDPOINTS, Environment
 from pyarca.shell.ports import TicketProvider, Transport
 from pyarca.shell.transport import HttpStatusError, RequestNotSentError, ResponseLostError

@@ -22,12 +22,11 @@ from pyarca.core.wsaa import Service
 from pyarca.core.wsfe import (
     AuthorizationResult,
     ConsultedVoucher,
-    WsfeOperation,
     build_consult_request,
     parse_consult_response,
-    soap_action,
 )
 from pyarca.core.wsfe_codes import Concept, DocumentType, ReceiverVatCondition, VoucherType
+from pyarca.core.wsfe_xml import WsfeOperation, soap_action
 from pyarca.shell.clock import SystemClock
 from pyarca.shell.endpoints import WSFE_ENDPOINTS, Environment
 from pyarca.shell.token_store import FileTokenStore
