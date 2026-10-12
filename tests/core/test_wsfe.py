@@ -9,7 +9,12 @@ from lxml import etree
 
 from pyarca.core.amounts import format_amount
 from pyarca.core.soap import MalformedResponseError, ResponseDefect, SoapFaultError
-from pyarca.core.voucher import InvalidVoucherError, VoucherDefect, VoucherRequest
+from pyarca.core.voucher import (
+    InvalidVoucherError,
+    ServicePeriod,
+    VoucherDefect,
+    VoucherRequest,
+)
 from pyarca.core.wsaa import AccessTicket
 from pyarca.core.wsfe import (
     ArcaMessage,
@@ -21,7 +26,7 @@ from pyarca.core.wsfe import (
     parse_consult_response,
     parse_last_authorized_response,
 )
-from pyarca.core.wsfe_codes import DocumentType, TributeType, VoucherType
+from pyarca.core.wsfe_codes import Concept, DocumentType, TributeType, VoucherType
 
 FIXTURES = Path(__file__).parent / "fixtures/wsfe"
 CUIT = 20111111112
@@ -109,6 +114,45 @@ def test_an_associated_voucher_without_cuit_or_date_is_sent_without_them(
 
     (element,) = etree.fromstring(request).iter("{http://ar.gov.afip.dif.FEV1/}CbteAsoc")
     assert [etree.QName(child).localname for child in element] == ["Tipo", "PtoVta", "Nro"]
+
+
+def test_a_service_in_foreign_currency_states_its_period_rate_and_settlement(
+    invoice_b: VoucherRequest,
+) -> None:
+    service = replace(
+        invoice_b,
+        concept=Concept.SERVICES,
+        currency="DOL",
+        exchange_rate=Decimal("1050.123456"),
+        settles_in_foreign_currency=False,
+        service_period=ServicePeriod(
+            service_from=date(2026, 10, 1),
+            service_to=date(2026, 10, 31),
+            payment_due=date(2026, 11, 10),
+        ),
+    )
+
+    request = build_authorize_request(
+        ticket=TICKET, cuit=CUIT, voucher=service, voucher_number=VOUCHER_NUMBER
+    )
+
+    expected = (FIXTURES / "authorize_request_service_foreign_currency.xml").read_bytes()
+    assert _canonical(request) == _canonical(expected)
+
+
+def test_a_settlement_in_the_foreign_currency_is_sent_as_s(invoice_b: VoucherRequest) -> None:
+    foreign = replace(
+        invoice_b,
+        currency="DOL",
+        exchange_rate=Decimal("1050.50"),
+        settles_in_foreign_currency=True,
+    )
+
+    request = build_authorize_request(
+        ticket=TICKET, cuit=CUIT, voucher=foreign, voucher_number=VOUCHER_NUMBER
+    )
+
+    assert b"<ar:MonCotiz>1050.50</ar:MonCotiz><ar:CanMisMonExt>S</ar:CanMisMonExt>" in request
 
 
 def test_a_tribute_without_a_description_is_sent_without_one(invoice_a: VoucherRequest) -> None:

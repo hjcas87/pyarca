@@ -7,6 +7,7 @@ from pyarca.core.amounts import (
     InvalidAmountError,
     amounts_match,
     validate_amount,
+    validate_exchange_rate,
 )
 
 FIELD = "total"
@@ -71,3 +72,32 @@ def test_amounts_outside_arcas_margin_do_not_match(
     expected: Decimal, actual: Decimal, aliquots: int
 ) -> None:
     assert not amounts_match(expected, actual, aliquots=aliquots)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [Decimal(1), Decimal("0.000001"), Decimal("1050.123456"), Decimal("9999.999999")],
+)
+def test_an_exchange_rate_within_arca_precision_is_returned_unchanged(value: Decimal) -> None:
+    assert validate_exchange_rate(value) == value
+
+
+@pytest.mark.parametrize(
+    ("value", "defect"),
+    [
+        (1.5, AmountDefect.NOT_DECIMAL),
+        (Decimal("NaN"), AmountDefect.NOT_FINITE),
+        (Decimal(0), AmountDefect.NOT_POSITIVE),
+        (Decimal(-1), AmountDefect.NOT_POSITIVE),
+        (Decimal("1.0000001"), AmountDefect.TOO_MANY_DECIMALS),
+        (Decimal(10000), AmountDefect.TOO_MANY_INTEGER_DIGITS),
+    ],
+)
+def test_an_exchange_rate_arca_would_misread_is_rejected(
+    value: object, defect: AmountDefect
+) -> None:
+    with pytest.raises(InvalidAmountError) as error:
+        validate_exchange_rate(value)
+
+    assert error.value.field == "exchange_rate"
+    assert error.value.defect == defect

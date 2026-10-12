@@ -27,6 +27,7 @@ from pyarca.core.wsfe_codes import VoucherType
 WSFE_NAMESPACE = "http://ar.gov.afip.dif.FEV1/"
 VOUCHER_DATE_FORMAT = "%Y%m%d"
 SINGLE_VOUCHER_COUNT = 1
+FOREIGN_SETTLEMENT_CODES = {True: "S", False: "N"}
 
 
 class WsfeOperation(StrEnum):
@@ -167,8 +168,13 @@ def _add_detail(parent: etree._Element, *, voucher: VoucherRequest, voucher_numb
     _add_text(detail, "ImpOpEx", format_amount(voucher.exempt))
     _add_text(detail, "ImpTrib", format_amount(voucher.tributes_total))
     _add_text(detail, "ImpIVA", format_amount(voucher.vat_total))
+    _add_service_period(detail, voucher)
     _add_text(detail, "MonId", voucher.currency)
     _add_text(detail, "MonCotiz", format(voucher.exchange_rate, "f"))
+    if voucher.settles_in_foreign_currency is not None:
+        _add_text(
+            detail, "CanMisMonExt", FOREIGN_SETTLEMENT_CODES[voucher.settles_in_foreign_currency]
+        )
     _add_text(detail, "CondicionIVAReceptorId", voucher.receiver_vat_condition.value)
     if voucher.associated_vouchers:
         _add_associated_vouchers(detail, voucher)
@@ -176,6 +182,15 @@ def _add_detail(parent: etree._Element, *, voucher: VoucherRequest, voucher_numb
         _add_tributes(detail, voucher)
     if voucher.vat_lines:
         _add_vat(detail, voucher)
+
+
+def _add_service_period(parent: etree._Element, voucher: VoucherRequest) -> None:
+    period = voucher.service_period
+    if period is None:
+        return
+    _add_text(parent, "FchServDesde", period.service_from.strftime(VOUCHER_DATE_FORMAT))
+    _add_text(parent, "FchServHasta", period.service_to.strftime(VOUCHER_DATE_FORMAT))
+    _add_text(parent, "FchVtoPago", period.payment_due.strftime(VOUCHER_DATE_FORMAT))
 
 
 def _add_associated_vouchers(parent: etree._Element, voucher: VoucherRequest) -> None:

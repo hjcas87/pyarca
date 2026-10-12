@@ -1,12 +1,13 @@
 """The voucher a taxpayer asks ARCA to authorize, checked before anything is sent."""
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 
-from pyarca.core.amounts import amounts_match, validate_amount
+from pyarca.core.amounts import amounts_match, validate_amount, validate_exchange_rate
 from pyarca.core.wsfe_codes import (
     Concept,
     DocumentType,
@@ -26,6 +27,7 @@ MAX_TRIBUTE_DESCRIPTION_LENGTH = 80
 TRIBUTE_RATE_INTEGER_DIGITS = 3
 MAX_POINT_OF_SALE = 99_999
 CUIT_DIGITS = 11
+CURRENCY_CODE = re.compile(r"[A-Z0-9]{3}")
 
 
 class VoucherClass(StrEnum):
@@ -128,9 +130,12 @@ class VoucherDefect(StrEnum):
     """Why a voucher cannot be authorized; most mirror the ARCA validation that would reject it."""
 
     UNSUPPORTED_VOUCHER_TYPE = "unsupported_voucher_type"
-    UNSUPPORTED_CONCEPT = "unsupported_concept"
-    UNSUPPORTED_CURRENCY = "unsupported_currency"
+    INVALID_CURRENCY_CODE = "invalid_currency_code"
     EXCHANGE_RATE_NOT_ONE = "exchange_rate_not_one"
+    FOREIGN_SETTLEMENT_WITH_PESOS = "foreign_settlement_with_pesos"
+    SERVICE_PERIOD_REQUIRED = "service_period_required"
+    SERVICE_PERIOD_REVERSED = "service_period_reversed"
+    PAYMENT_DUE_BEFORE_VOUCHER_DATE = "payment_due_before_voucher_date"
     FINAL_CONSUMER_DOCUMENT_NUMBER = "final_consumer_document_number"
     RECEIVER_CONDITION_NOT_ALLOWED = "receiver_condition_not_allowed"
     DOCUMENT_TYPE_NOT_ALLOWED = "document_type_not_allowed"
@@ -232,8 +237,26 @@ class AssociatedVoucher:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ServicePeriod:
+    """The period a service is billed for and when its payment falls due."""
+
+    service_from: date
+    service_to: date
+    payment_due: date
+
+    def __post_init__(self) -> None:
+        """Reject a period that ends before it starts.
+
+        Raises:
+            InvalidVoucherError: If `service_to` is earlier than `service_from`.
+        """
+        if self.service_to < self.service_from:
+            raise InvalidVoucherError(VoucherDefect.SERVICE_PERIOD_REVERSED)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class VoucherRequest:
-    """A factura or nota A, B or C in pesos for products; the number is chosen when it is sent."""
+    """A factura or nota A, B or C; the voucher number is chosen when it is sent."""
 
     point_of_sale: int
     voucher_type: VoucherType
@@ -252,6 +275,8 @@ class VoucherRequest:
     exchange_rate: Decimal
     tributes: tuple[Tribute, ...] = ()
     associated_vouchers: tuple[AssociatedVoucher, ...] = ()
+    service_period: ServicePeriod | None = None
+    settles_in_foreign_currency: bool | None = None
 
     @property
     def tributes_total(self) -> Decimal:
@@ -265,9 +290,12 @@ class VoucherRequest:
             InvalidAmountError: If an amount is not a `Decimal` that fits ARCA's format.
             InvalidVoucherError: If the voucher is not supported or its figures are inconsistent.
         """
-        for name in ("total", "non_taxed", "net", "exempt", "vat_total", "exchange_rate"):
+        for name in ("total", "non_taxed", "net", "exempt", "vat_total"):
             validate_amount(name, getattr(self, name))
+        validate_exchange_rate(self.exchange_rate)
         _check_supported(self)
+        _check_currency(self)
+        _check_service_period(self)
         _check_receiver(self)
         _check_class_rules(self)
         _check_associated_vouchers(self)
@@ -278,12 +306,27 @@ class VoucherRequest:
 def _check_supported(request: VoucherRequest) -> None:
     if request.voucher_type not in SUPPORTED_VOUCHER_CLASSES:
         raise InvalidVoucherError(VoucherDefect.UNSUPPORTED_VOUCHER_TYPE)
-    if request.concept != Concept.PRODUCTS:
-        raise InvalidVoucherError(VoucherDefect.UNSUPPORTED_CONCEPT)
+
+
+def _check_currency(request: VoucherRequest) -> None:
+    if not CURRENCY_CODE.fullmatch(request.currency):
+        raise InvalidVoucherError(VoucherDefect.INVALID_CURRENCY_CODE)
     if request.currency != PESOS:
-        raise InvalidVoucherError(VoucherDefect.UNSUPPORTED_CURRENCY)
+        return
     if request.exchange_rate != PESOS_EXCHANGE_RATE:
         raise InvalidVoucherError(VoucherDefect.EXCHANGE_RATE_NOT_ONE)
+    if request.settles_in_foreign_currency is not None:
+        raise InvalidVoucherError(VoucherDefect.FOREIGN_SETTLEMENT_WITH_PESOS)
+
+
+def _check_service_period(request: VoucherRequest) -> None:
+    period = request.service_period
+    if period is None:
+        if request.concept != Concept.PRODUCTS:
+            raise InvalidVoucherError(VoucherDefect.SERVICE_PERIOD_REQUIRED)
+        return
+    if period.payment_due < request.voucher_date:
+        raise InvalidVoucherError(VoucherDefect.PAYMENT_DUE_BEFORE_VOUCHER_DATE)
 
 
 def _check_receiver(request: VoucherRequest) -> None:
