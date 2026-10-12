@@ -7,12 +7,11 @@ from zoneinfo import ZoneInfo
 import pytest
 from lxml import etree
 
+from pyarca.core.soap import MalformedResponseError, ResponseDefect
 from pyarca.core.wsaa import (
     MAX_UNIQUE_ID,
     AccessTicket,
-    MalformedResponseError,
     NaiveTimeError,
-    ResponseDefect,
     Service,
     UniqueIdOutOfRangeError,
     WsaaFaultCode,
