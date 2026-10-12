@@ -8,7 +8,14 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import NameOID
 
-from pyarca.core.voucher import PESOS, PESOS_EXCHANGE_RATE, Tribute, VatLine, VoucherRequest
+from pyarca.core.voucher import (
+    PESOS,
+    PESOS_EXCHANGE_RATE,
+    AssociatedVoucher,
+    Tribute,
+    VatLine,
+    VoucherRequest,
+)
 from pyarca.core.wsfe_codes import (
     Concept,
     DocumentType,
@@ -170,4 +177,34 @@ def invoice_a() -> VoucherRequest:
         ),
         currency=PESOS,
         exchange_rate=PESOS_EXCHANGE_RATE,
+    )
+
+
+@pytest.fixture
+def credit_note_c() -> VoucherRequest:
+    return VoucherRequest(
+        point_of_sale=1,
+        voucher_type=VoucherType.CREDIT_NOTE_C,
+        concept=Concept.PRODUCTS,
+        document_type=DocumentType.FINAL_CONSUMER,
+        document_number=0,
+        receiver_vat_condition=ReceiverVatCondition.FINAL_CONSUMER,
+        voucher_date=date(2026, 10, 12),
+        total=Decimal("100.00"),
+        non_taxed=Decimal(0),
+        net=Decimal("100.00"),
+        exempt=Decimal(0),
+        vat_total=Decimal(0),
+        vat_lines=(),
+        currency=PESOS,
+        exchange_rate=PESOS_EXCHANGE_RATE,
+        associated_vouchers=(
+            AssociatedVoucher(
+                voucher_type=VoucherType.INVOICE_C,
+                point_of_sale=3,
+                number=5,
+                cuit=20111111112,
+                voucher_date=date(2026, 10, 1),
+            ),
+        ),
     )

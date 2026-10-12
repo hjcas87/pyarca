@@ -8,6 +8,7 @@ import pytest
 
 from pyarca.core.amounts import AmountDefect, InvalidAmountError
 from pyarca.core.voucher import (
+    AssociatedVoucher,
     InvalidVoucherError,
     Tribute,
     VatLine,
@@ -72,6 +73,25 @@ def _invoice_a(**overrides: object) -> VoucherRequest:
         "receiver_vat_condition": ReceiverVatCondition.REGISTERED_COMPANY,
     }
     return _with({**defaults, **overrides})
+
+
+def _associated(**overrides: object) -> AssociatedVoucher:
+    values: dict[str, object] = {
+        "voucher_type": VoucherType.INVOICE_C,
+        "point_of_sale": 3,
+        "number": 5,
+        "cuit": None,
+        "voucher_date": None,
+    }
+    return AssociatedVoucher(**cast("dict[str, Any]", {**values, **overrides}))
+
+
+def _note_c(**overrides: object) -> VoucherRequest:
+    defaults: dict[str, object] = {
+        "voucher_type": VoucherType.CREDIT_NOTE_C,
+        "associated_vouchers": (_associated(),),
+    }
+    return _invoice_c(**{**defaults, **overrides})
 
 
 def _tribute(**overrides: object) -> Tribute:
@@ -192,7 +212,7 @@ def test_a_final_consumer_must_carry_document_number_zero() -> None:
 @pytest.mark.parametrize(
     ("overrides", "defect"),
     [
-        ({"voucher_type": VoucherType.CREDIT_NOTE_A}, VoucherDefect.UNSUPPORTED_VOUCHER_TYPE),
+        ({"voucher_type": VoucherType.FCE_INVOICE_A}, VoucherDefect.UNSUPPORTED_VOUCHER_TYPE),
         ({"concept": Concept.SERVICES}, VoucherDefect.UNSUPPORTED_CONCEPT),
         ({"currency": "USD"}, VoucherDefect.UNSUPPORTED_CURRENCY),
         ({"exchange_rate": Decimal(2)}, VoucherDefect.EXCHANGE_RATE_NOT_ONE),
@@ -307,3 +327,117 @@ def test_a_tribute_amount_with_more_than_two_decimals_is_rejected() -> None:
         _tribute(amount=Decimal("3.001"))
 
     assert error.value.field == "tribute.amount"
+
+
+@pytest.mark.parametrize(
+    ("build", "note", "cancelled"),
+    [
+        (_invoice_a, VoucherType.DEBIT_NOTE_A, VoucherType.INVOICE_A),
+        (_invoice_a, VoucherType.CREDIT_NOTE_A, VoucherType.CREDIT_NOTE_A),
+        (_invoice_b, VoucherType.DEBIT_NOTE_B, VoucherType.INVOICE_B),
+        (_invoice_b, VoucherType.CREDIT_NOTE_B, VoucherType.RECEIPT_B),
+        (_invoice_c, VoucherType.DEBIT_NOTE_C, VoucherType.DEBIT_NOTE_C),
+        (_invoice_c, VoucherType.CREDIT_NOTE_C, VoucherType.INVOICE_C),
+    ],
+)
+def test_a_note_may_cancel_the_vouchers_of_its_own_letter(
+    build: Callable[..., VoucherRequest], note: VoucherType, cancelled: VoucherType
+) -> None:
+    request = build(voucher_type=note, associated_vouchers=(_associated(voucher_type=cancelled),))
+
+    assert request.associated_vouchers[0].voucher_type == cancelled
+
+
+@pytest.mark.parametrize(
+    ("build", "note", "other_letter"),
+    [
+        (_invoice_a, VoucherType.CREDIT_NOTE_A, VoucherType.INVOICE_B),
+        (_invoice_b, VoucherType.CREDIT_NOTE_B, VoucherType.INVOICE_C),
+        (_invoice_c, VoucherType.CREDIT_NOTE_C, VoucherType.INVOICE_A),
+    ],
+)
+def test_a_note_cannot_cancel_a_voucher_of_another_letter(
+    build: Callable[..., VoucherRequest], note: VoucherType, other_letter: VoucherType
+) -> None:
+    defect = _defect_of(
+        lambda: build(
+            voucher_type=note, associated_vouchers=(_associated(voucher_type=other_letter),)
+        )
+    )
+
+    assert defect == VoucherDefect.ASSOCIATED_VOUCHER_TYPE_INCOMPATIBLE
+
+
+def test_a_note_without_the_voucher_it_cancels_is_rejected() -> None:
+    assert _defect_of(lambda: _note_c(associated_vouchers=())) == (
+        VoucherDefect.ASSOCIATED_VOUCHER_REQUIRED
+    )
+
+
+def test_an_invoice_cannot_carry_associated_vouchers() -> None:
+    assert _defect_of(lambda: _invoice_c(associated_vouchers=(_associated(),))) == (
+        VoucherDefect.ASSOCIATED_VOUCHER_NOT_ALLOWED
+    )
+
+
+def test_the_same_voucher_cannot_be_associated_twice() -> None:
+    assert _defect_of(lambda: _note_c(associated_vouchers=(_associated(), _associated()))) == (
+        VoucherDefect.ASSOCIATED_VOUCHER_DUPLICATED
+    )
+
+
+def test_two_vouchers_that_differ_only_in_point_of_sale_are_not_duplicates() -> None:
+    note = _note_c(associated_vouchers=(_associated(), _associated(point_of_sale=4)))
+
+    assert [voucher.point_of_sale for voucher in note.associated_vouchers] == [3, 4]
+
+
+@pytest.mark.parametrize(
+    ("voucher_date", "accepted"),
+    [
+        (date(2026, 9, 30), True),
+        (date(2026, 10, 12), True),
+        (date(2026, 10, 25), True),
+        (date(2026, 11, 1), False),
+        (date(2027, 10, 20), False),
+    ],
+)
+def test_an_associated_voucher_dated_after_the_note_must_be_of_the_same_month(
+    voucher_date: date, *, accepted: bool
+) -> None:
+    def build() -> VoucherRequest:
+        return _note_c(associated_vouchers=(_associated(voucher_date=voucher_date),))
+
+    if accepted:
+        assert build().associated_vouchers[0].voucher_date == voucher_date
+        return
+    assert _defect_of(build) == VoucherDefect.ASSOCIATED_VOUCHER_DATE_NOT_ALLOWED
+
+
+@pytest.mark.parametrize(
+    ("overrides", "defect"),
+    [
+        ({"point_of_sale": 0}, VoucherDefect.ASSOCIATED_POINT_OF_SALE_OUT_OF_RANGE),
+        ({"point_of_sale": 100_000}, VoucherDefect.ASSOCIATED_POINT_OF_SALE_OUT_OF_RANGE),
+        ({"number": 0}, VoucherDefect.ASSOCIATED_NUMBER_OUT_OF_RANGE),
+        ({"number": 100_000_000}, VoucherDefect.ASSOCIATED_NUMBER_OUT_OF_RANGE),
+        ({"cuit": 2_011_111_111}, VoucherDefect.ASSOCIATED_CUIT_INVALID),
+        ({"cuit": 120_111_111_112}, VoucherDefect.ASSOCIATED_CUIT_INVALID),
+    ],
+)
+def test_an_associated_voucher_outside_arcas_ranges_is_rejected(
+    overrides: dict[str, object], defect: VoucherDefect
+) -> None:
+    assert _defect_of(lambda: _associated(**overrides)) == defect
+
+
+def test_a_partial_note_a_may_state_vat_bases_that_do_not_add_up_to_its_net() -> None:
+    lines = (VatLine(rate=VatRate.RATE_21, base=Decimal("90.00"), amount=Decimal("21.00")),)
+
+    note = _invoice_a(
+        voucher_type=VoucherType.CREDIT_NOTE_A,
+        associated_vouchers=(_associated(voucher_type=VoucherType.INVOICE_A),),
+        vat_lines=lines,
+    )
+
+    assert note.vat_lines == lines

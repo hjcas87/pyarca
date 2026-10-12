@@ -24,6 +24,8 @@ MIN_INVOICE_A_RECEIVER_CUIT = 20_000_000_000
 MAX_INVOICE_A_RECEIVER_CUIT = 60_000_000_000
 MAX_TRIBUTE_DESCRIPTION_LENGTH = 80
 TRIBUTE_RATE_INTEGER_DIGITS = 3
+MAX_POINT_OF_SALE = 99_999
+CUIT_DIGITS = 11
 
 
 class VoucherClass(StrEnum):
@@ -36,9 +38,53 @@ class VoucherClass(StrEnum):
 
 SUPPORTED_VOUCHER_CLASSES: dict[VoucherType, VoucherClass] = {
     VoucherType.INVOICE_A: VoucherClass.A,
+    VoucherType.DEBIT_NOTE_A: VoucherClass.A,
+    VoucherType.CREDIT_NOTE_A: VoucherClass.A,
     VoucherType.INVOICE_B: VoucherClass.B,
+    VoucherType.DEBIT_NOTE_B: VoucherClass.B,
+    VoucherType.CREDIT_NOTE_B: VoucherClass.B,
     VoucherType.INVOICE_C: VoucherClass.C,
+    VoucherType.DEBIT_NOTE_C: VoucherClass.C,
+    VoucherType.CREDIT_NOTE_C: VoucherClass.C,
 }
+
+_ASSOCIABLE_TO_NOTES_A = frozenset(
+    {
+        VoucherType.INVOICE_A,
+        VoucherType.DEBIT_NOTE_A,
+        VoucherType.CREDIT_NOTE_A,
+        VoucherType.RECEIPT_A,
+    }
+)
+_ASSOCIABLE_TO_NOTES_B = frozenset(
+    {
+        VoucherType.INVOICE_B,
+        VoucherType.DEBIT_NOTE_B,
+        VoucherType.CREDIT_NOTE_B,
+        VoucherType.RECEIPT_B,
+    }
+)
+_ASSOCIABLE_TO_NOTES_C = frozenset(
+    {
+        VoucherType.INVOICE_C,
+        VoucherType.DEBIT_NOTE_C,
+        VoucherType.CREDIT_NOTE_C,
+        VoucherType.RECEIPT_C,
+    }
+)
+
+# Developer manual, error 10040: the vouchers a debit or credit note may be associated to.
+ASSOCIABLE_VOUCHER_TYPES: dict[VoucherType, frozenset[VoucherType]] = {
+    VoucherType.DEBIT_NOTE_A: _ASSOCIABLE_TO_NOTES_A,
+    VoucherType.CREDIT_NOTE_A: _ASSOCIABLE_TO_NOTES_A,
+    VoucherType.DEBIT_NOTE_B: _ASSOCIABLE_TO_NOTES_B,
+    VoucherType.CREDIT_NOTE_B: _ASSOCIABLE_TO_NOTES_B,
+    VoucherType.DEBIT_NOTE_C: _ASSOCIABLE_TO_NOTES_C,
+    VoucherType.CREDIT_NOTE_C: _ASSOCIABLE_TO_NOTES_C,
+}
+
+# Error 10061 does not apply to notes: a partial note may state its VAT bases proportionally.
+VAT_BASE_CHECKED_TYPES = frozenset({VoucherType.INVOICE_A, VoucherType.INVOICE_B})
 
 ALLOWED_RECEIVER_CONDITIONS: dict[VoucherClass, frozenset[ReceiverVatCondition]] = {
     VoucherClass.A: frozenset(
@@ -100,6 +146,14 @@ class VoucherDefect(StrEnum):
     TRIBUTE_DESCRIPTION_REQUIRED = "tribute_description_required"
     TRIBUTE_DESCRIPTION_TOO_LONG = "tribute_description_too_long"
     TRIBUTE_RATE_OUT_OF_RANGE = "tribute_rate_out_of_range"
+    ASSOCIATED_VOUCHER_REQUIRED = "associated_voucher_required"
+    ASSOCIATED_VOUCHER_NOT_ALLOWED = "associated_voucher_not_allowed"
+    ASSOCIATED_VOUCHER_TYPE_INCOMPATIBLE = "associated_voucher_type_incompatible"
+    ASSOCIATED_VOUCHER_DUPLICATED = "associated_voucher_duplicated"
+    ASSOCIATED_VOUCHER_DATE_NOT_ALLOWED = "associated_voucher_date_not_allowed"
+    ASSOCIATED_POINT_OF_SALE_OUT_OF_RANGE = "associated_point_of_sale_out_of_range"
+    ASSOCIATED_NUMBER_OUT_OF_RANGE = "associated_number_out_of_range"
+    ASSOCIATED_CUIT_INVALID = "associated_cuit_invalid"
 
 
 class InvalidVoucherError(ValueError):
@@ -154,8 +208,32 @@ class Tribute:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class AssociatedVoucher:
+    """A voucher a note refers to, identified by the point of sale it was issued from."""
+
+    voucher_type: VoucherType
+    point_of_sale: int
+    number: int
+    cuit: int | None
+    voucher_date: date | None
+
+    def __post_init__(self) -> None:
+        """Reject a reference ARCA would refuse.
+
+        Raises:
+            InvalidVoucherError: If the point of sale, number or CUIT is out of range.
+        """
+        if not 1 <= self.point_of_sale <= MAX_POINT_OF_SALE:
+            raise InvalidVoucherError(VoucherDefect.ASSOCIATED_POINT_OF_SALE_OUT_OF_RANGE)
+        if not 1 <= self.number <= MAX_VOUCHER_NUMBER:
+            raise InvalidVoucherError(VoucherDefect.ASSOCIATED_NUMBER_OUT_OF_RANGE)
+        if self.cuit is not None and len(str(self.cuit)) != CUIT_DIGITS:
+            raise InvalidVoucherError(VoucherDefect.ASSOCIATED_CUIT_INVALID)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class VoucherRequest:
-    """A Factura A, B or C in pesos for products; the number is chosen when it is sent."""
+    """A factura or nota A, B or C in pesos for products; the number is chosen when it is sent."""
 
     point_of_sale: int
     voucher_type: VoucherType
@@ -173,6 +251,7 @@ class VoucherRequest:
     currency: str
     exchange_rate: Decimal
     tributes: tuple[Tribute, ...] = ()
+    associated_vouchers: tuple[AssociatedVoucher, ...] = ()
 
     @property
     def tributes_total(self) -> Decimal:
@@ -191,6 +270,7 @@ class VoucherRequest:
         _check_supported(self)
         _check_receiver(self)
         _check_class_rules(self)
+        _check_associated_vouchers(self)
         _check_tributes(self)
         _check_total(self)
 
@@ -235,7 +315,8 @@ def _check_itemized_vat(request: VoucherRequest) -> None:
     if not amounts_match(amounts, request.vat_total, aliquots=max(len(lines), 1)):
         raise InvalidVoucherError(VoucherDefect.VAT_AMOUNT_MISMATCH)
     bases = sum((line.base for line in lines), start=Decimal(0))
-    if not amounts_match(bases, request.net):
+    checks_base = request.voucher_type in VAT_BASE_CHECKED_TYPES
+    if checks_base and not amounts_match(bases, request.net):
         raise InvalidVoucherError(VoucherDefect.VAT_BASE_MISMATCH)
 
 
@@ -244,6 +325,39 @@ def _check_invoice_c_amounts(request: VoucherRequest) -> None:
         raise InvalidVoucherError(VoucherDefect.VAT_NOT_ALLOWED)
     if request.non_taxed != 0 or request.exempt != 0:
         raise InvalidVoucherError(VoucherDefect.NON_NET_AMOUNT_NOT_ALLOWED)
+
+
+def _check_associated_vouchers(request: VoucherRequest) -> None:
+    associable = ASSOCIABLE_VOUCHER_TYPES.get(request.voucher_type)
+    if associable is None:
+        if request.associated_vouchers:
+            raise InvalidVoucherError(VoucherDefect.ASSOCIATED_VOUCHER_NOT_ALLOWED)
+        return
+    if not request.associated_vouchers:
+        raise InvalidVoucherError(VoucherDefect.ASSOCIATED_VOUCHER_REQUIRED)
+    identities = {
+        (voucher.voucher_type, voucher.point_of_sale, voucher.number)
+        for voucher in request.associated_vouchers
+    }
+    if len(identities) != len(request.associated_vouchers):
+        raise InvalidVoucherError(VoucherDefect.ASSOCIATED_VOUCHER_DUPLICATED)
+    for voucher in request.associated_vouchers:
+        _check_associated(voucher, associable=associable, note_date=request.voucher_date)
+
+
+def _check_associated(
+    voucher: AssociatedVoucher, *, associable: frozenset[VoucherType], note_date: date
+) -> None:
+    if voucher.voucher_type not in associable:
+        raise InvalidVoucherError(VoucherDefect.ASSOCIATED_VOUCHER_TYPE_INCOMPATIBLE)
+    if _is_dated_in_a_later_month(voucher.voucher_date, note_date):
+        raise InvalidVoucherError(VoucherDefect.ASSOCIATED_VOUCHER_DATE_NOT_ALLOWED)
+
+
+def _is_dated_in_a_later_month(associated_date: date | None, note_date: date) -> bool:
+    if associated_date is None or associated_date <= note_date:
+        return False
+    return (associated_date.year, associated_date.month) != (note_date.year, note_date.month)
 
 
 def _check_tributes(request: VoucherRequest) -> None:
