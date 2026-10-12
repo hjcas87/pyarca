@@ -778,3 +778,130 @@ def test_a_voucher_that_is_not_fce_cannot_carry_the_credit_invoice_optionals(
     assert _defect_of(lambda: _invoice_b(optionals=(optional,))) == (
         VoucherDefect.OPTIONAL_NOT_ALLOWED
     )
+
+
+def _annulment(code: AnnulmentCode = AnnulmentCode.ANNULMENT) -> VoucherOptional:
+    return VoucherOptional(optional_id=OptionalId.ANNULMENT, value=code)
+
+
+FCE_NOTES_WITH_THEIR_INVOICE = [
+    (VoucherType.FCE_DEBIT_NOTE_A, VoucherType.FCE_INVOICE_A, _invoice_a),
+    (VoucherType.FCE_CREDIT_NOTE_A, VoucherType.FCE_INVOICE_A, _invoice_a),
+    (VoucherType.FCE_DEBIT_NOTE_B, VoucherType.FCE_INVOICE_B, _invoice_b),
+    (VoucherType.FCE_CREDIT_NOTE_B, VoucherType.FCE_INVOICE_B, _invoice_b),
+    (VoucherType.FCE_DEBIT_NOTE_C, VoucherType.FCE_INVOICE_C, _invoice_c),
+    (VoucherType.FCE_CREDIT_NOTE_C, VoucherType.FCE_INVOICE_C, _invoice_c),
+]
+
+
+def _fce_note(
+    note_type: VoucherType, invoice_type: VoucherType, build: Callable[..., VoucherRequest]
+) -> Callable[..., VoucherRequest]:
+    def make(**overrides: object) -> VoucherRequest:
+        defaults: dict[str, object] = {
+            "voucher_type": note_type,
+            "document_type": DocumentType.CUIT,
+            "document_number": 20111111112,
+            "receiver_vat_condition": ReceiverVatCondition.REGISTERED_COMPANY,
+            "optionals": (_annulment(),),
+            "associated_vouchers": (_associated(voucher_type=invoice_type),),
+        }
+        return build(**{**defaults, **overrides})
+
+    return make
+
+
+@pytest.mark.parametrize(("note_type", "invoice_type", "build"), FCE_NOTES_WITH_THEIR_INVOICE)
+def test_an_fce_note_annulling_an_fce_invoice_of_its_letter_is_accepted(
+    note_type: VoucherType, invoice_type: VoucherType, build: Callable[..., VoucherRequest]
+) -> None:
+    assert _fce_note(note_type, invoice_type, build)().voucher_type == note_type
+
+
+@pytest.mark.parametrize(("note_type", "invoice_type", "build"), FCE_NOTES_WITH_THEIR_INVOICE)
+def test_an_fce_note_without_the_annulment_code_is_rejected(
+    note_type: VoucherType, invoice_type: VoucherType, build: Callable[..., VoucherRequest]
+) -> None:
+    assert _defect_of(lambda: _fce_note(note_type, invoice_type, build)(optionals=())) == (
+        VoucherDefect.ANNULMENT_CODE_REQUIRED
+    )
+
+
+@pytest.mark.parametrize(
+    "optional",
+    [
+        _cbu(),
+        _transfer(),
+        VoucherOptional(optional_id=OptionalId.CBU_ALIAS, value="MI.ALIAS.CBU"),
+    ],
+)
+def test_an_fce_note_cannot_state_the_credit_invoice_optionals(optional: VoucherOptional) -> None:
+    make = _fce_note(VoucherType.FCE_CREDIT_NOTE_C, VoucherType.FCE_INVOICE_C, _invoice_c)
+
+    assert _defect_of(lambda: make(optionals=(_annulment(), optional))) == (
+        VoucherDefect.OPTIONAL_NOT_ALLOWED
+    )
+
+
+def test_an_fce_note_may_state_a_payment_due_date_only_when_it_annuls() -> None:
+    make = _fce_note(VoucherType.FCE_CREDIT_NOTE_C, VoucherType.FCE_INVOICE_C, _invoice_c)
+    due = date(2026, 11, 10)
+
+    assert make(payment_due_date=due).payment_due == due
+    assert _defect_of(
+        lambda: make(optionals=(_annulment(AnnulmentCode.NOT_ANNULMENT),), payment_due_date=due)
+    ) == (VoucherDefect.PAYMENT_DUE_NOT_ALLOWED)
+
+
+def test_an_fce_note_that_does_not_annul_needs_no_payment_due_date() -> None:
+    make = _fce_note(VoucherType.FCE_CREDIT_NOTE_C, VoucherType.FCE_INVOICE_C, _invoice_c)
+
+    note = make(optionals=(_annulment(AnnulmentCode.NOT_ANNULMENT),))
+
+    assert note.payment_due is None
+
+
+@pytest.mark.parametrize(
+    "associated_type",
+    [
+        VoucherType.FCE_INVOICE_C,
+        VoucherType.FCE_DEBIT_NOTE_C,
+        VoucherType.FCE_CREDIT_NOTE_C,
+    ],
+)
+def test_an_fce_note_may_cancel_any_fce_voucher_of_its_letter(
+    associated_type: VoucherType,
+) -> None:
+    make = _fce_note(VoucherType.FCE_CREDIT_NOTE_C, VoucherType.FCE_INVOICE_C, _invoice_c)
+
+    note = make(associated_vouchers=(_associated(voucher_type=associated_type),))
+
+    assert note.associated_vouchers[0].voucher_type == associated_type
+
+
+@pytest.mark.parametrize(
+    "associated_type",
+    [VoucherType.INVOICE_C, VoucherType.RECEIPT_C, VoucherType.FCE_INVOICE_B],
+)
+def test_an_fce_note_cannot_cancel_a_voucher_that_is_not_fce_of_its_letter(
+    associated_type: VoucherType,
+) -> None:
+    make = _fce_note(VoucherType.FCE_CREDIT_NOTE_C, VoucherType.FCE_INVOICE_C, _invoice_c)
+
+    assert _defect_of(
+        lambda: make(associated_vouchers=(_associated(voucher_type=associated_type),))
+    ) == (VoucherDefect.ASSOCIATED_VOUCHER_TYPE_INCOMPATIBLE)
+
+
+def test_an_ordinary_note_cannot_cancel_an_fce_invoice() -> None:
+    assert _defect_of(
+        lambda: _note_c(associated_vouchers=(_associated(voucher_type=VoucherType.FCE_INVOICE_C),))
+    ) == (VoucherDefect.ASSOCIATED_VOUCHER_TYPE_INCOMPATIBLE)
+
+
+def test_an_fce_note_cannot_be_issued_to_the_not_categorized_receiver() -> None:
+    make = _fce_note(VoucherType.FCE_CREDIT_NOTE_B, VoucherType.FCE_INVOICE_B, _invoice_b)
+
+    assert _defect_of(lambda: make(document_number=23_000_000_000)) == (
+        VoucherDefect.FCE_RECEIVER_NOT_ALLOWED
+    )

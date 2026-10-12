@@ -56,14 +56,30 @@ SUPPORTED_VOUCHER_CLASSES: dict[VoucherType, VoucherClass] = {
     VoucherType.DEBIT_NOTE_C: VoucherClass.C,
     VoucherType.CREDIT_NOTE_C: VoucherClass.C,
     VoucherType.FCE_INVOICE_A: VoucherClass.A,
+    VoucherType.FCE_DEBIT_NOTE_A: VoucherClass.A,
+    VoucherType.FCE_CREDIT_NOTE_A: VoucherClass.A,
     VoucherType.FCE_INVOICE_B: VoucherClass.B,
+    VoucherType.FCE_DEBIT_NOTE_B: VoucherClass.B,
+    VoucherType.FCE_CREDIT_NOTE_B: VoucherClass.B,
     VoucherType.FCE_INVOICE_C: VoucherClass.C,
+    VoucherType.FCE_DEBIT_NOTE_C: VoucherClass.C,
+    VoucherType.FCE_CREDIT_NOTE_C: VoucherClass.C,
 }
 
 FCE_INVOICE_TYPES = frozenset(
     {VoucherType.FCE_INVOICE_A, VoucherType.FCE_INVOICE_B, VoucherType.FCE_INVOICE_C}
 )
-FCE_TYPES = FCE_INVOICE_TYPES
+FCE_NOTE_TYPES = frozenset(
+    {
+        VoucherType.FCE_DEBIT_NOTE_A,
+        VoucherType.FCE_CREDIT_NOTE_A,
+        VoucherType.FCE_DEBIT_NOTE_B,
+        VoucherType.FCE_CREDIT_NOTE_B,
+        VoucherType.FCE_DEBIT_NOTE_C,
+        VoucherType.FCE_CREDIT_NOTE_C,
+    }
+)
+FCE_TYPES = FCE_INVOICE_TYPES | FCE_NOTE_TYPES
 # Developer manual, error 10178: DocNro 23000000000 (No Categorizado) is refused for FCE.
 FCE_REFUSED_RECEIVER_DOCUMENT_NUMBER = 23_000_000_000
 FCE_ONLY_OPTIONALS = frozenset(
@@ -91,6 +107,15 @@ _ASSOCIABLE_TO_NOTES_B = frozenset(
         VoucherType.RECEIPT_B,
     }
 )
+_ASSOCIABLE_TO_FCE_NOTES_A = frozenset(
+    {VoucherType.FCE_INVOICE_A, VoucherType.FCE_DEBIT_NOTE_A, VoucherType.FCE_CREDIT_NOTE_A}
+)
+_ASSOCIABLE_TO_FCE_NOTES_B = frozenset(
+    {VoucherType.FCE_INVOICE_B, VoucherType.FCE_DEBIT_NOTE_B, VoucherType.FCE_CREDIT_NOTE_B}
+)
+_ASSOCIABLE_TO_FCE_NOTES_C = frozenset(
+    {VoucherType.FCE_INVOICE_C, VoucherType.FCE_DEBIT_NOTE_C, VoucherType.FCE_CREDIT_NOTE_C}
+)
 _ASSOCIABLE_TO_NOTES_C = frozenset(
     {
         VoucherType.INVOICE_C,
@@ -108,6 +133,12 @@ ASSOCIABLE_VOUCHER_TYPES: dict[VoucherType, frozenset[VoucherType]] = {
     VoucherType.CREDIT_NOTE_B: _ASSOCIABLE_TO_NOTES_B,
     VoucherType.DEBIT_NOTE_C: _ASSOCIABLE_TO_NOTES_C,
     VoucherType.CREDIT_NOTE_C: _ASSOCIABLE_TO_NOTES_C,
+    VoucherType.FCE_DEBIT_NOTE_A: _ASSOCIABLE_TO_FCE_NOTES_A,
+    VoucherType.FCE_CREDIT_NOTE_A: _ASSOCIABLE_TO_FCE_NOTES_A,
+    VoucherType.FCE_DEBIT_NOTE_B: _ASSOCIABLE_TO_FCE_NOTES_B,
+    VoucherType.FCE_CREDIT_NOTE_B: _ASSOCIABLE_TO_FCE_NOTES_B,
+    VoucherType.FCE_DEBIT_NOTE_C: _ASSOCIABLE_TO_FCE_NOTES_C,
+    VoucherType.FCE_CREDIT_NOTE_C: _ASSOCIABLE_TO_FCE_NOTES_C,
 }
 
 # Error 10061 does not apply to notes: a partial note may state its VAT bases proportionally.
@@ -224,6 +255,8 @@ class VoucherDefect(StrEnum):
     PAYMENT_DUE_REQUIRED = "payment_due_required"
     PAYMENT_DUE_GIVEN_TWICE = "payment_due_given_twice"
     FCE_RECEIVER_NOT_ALLOWED = "fce_receiver_not_allowed"
+    ANNULMENT_CODE_REQUIRED = "annulment_code_required"
+    PAYMENT_DUE_NOT_ALLOWED = "payment_due_not_allowed"
 
 
 class InvalidVoucherError(ValueError):
@@ -559,6 +592,18 @@ def _check_fce_invoice(request: VoucherRequest) -> None:
         raise InvalidVoucherError(VoucherDefect.PAYMENT_DUE_REQUIRED)
 
 
+def _check_fce_note(request: VoucherRequest) -> None:
+    _require(request, OptionalId.ANNULMENT, VoucherDefect.ANNULMENT_CODE_REQUIRED)
+    _forbid(request, frozenset({OptionalId.CBU, OptionalId.CBU_ALIAS, OptionalId.TRANSFER_MODE}))
+    annulment = AnnulmentCode.ANNULMENT.value
+    annuls = any(
+        optional.optional_id == OptionalId.ANNULMENT and optional.value == annulment
+        for optional in request.optionals
+    )
+    if request.payment_due is not None and not annuls:
+        raise InvalidVoucherError(VoucherDefect.PAYMENT_DUE_NOT_ALLOWED)
+
+
 def _require(request: VoucherRequest, optional_id: OptionalId, defect: VoucherDefect) -> None:
     if all(optional.optional_id != optional_id for optional in request.optionals):
         raise InvalidVoucherError(defect)
@@ -587,6 +632,7 @@ CLASS_RULES: dict[VoucherClass, Callable[[VoucherRequest], None]] = {
     VoucherClass.C: _check_invoice_c_amounts,
 }
 
-FCE_RULES: dict[VoucherType, Callable[[VoucherRequest], None]] = dict.fromkeys(
-    FCE_INVOICE_TYPES, _check_fce_invoice
-)
+FCE_RULES: dict[VoucherType, Callable[[VoucherRequest], None]] = {
+    **dict.fromkeys(FCE_INVOICE_TYPES, _check_fce_invoice),
+    **dict.fromkeys(FCE_NOTE_TYPES, _check_fce_note),
+}
