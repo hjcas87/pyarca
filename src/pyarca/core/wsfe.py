@@ -182,6 +182,8 @@ def _add_detail(parent: etree._Element, *, voucher: VoucherRequest, voucher_numb
         _add_tributes(detail, voucher)
     if voucher.vat_lines:
         _add_vat(detail, voucher)
+    if voucher.optionals:
+        _add_optionals(detail, voucher)
 
 
 def _add_service_period(parent: etree._Element, voucher: VoucherRequest) -> None:
@@ -225,6 +227,14 @@ def _add_vat(parent: etree._Element, voucher: VoucherRequest) -> None:
         _add_text(aliquot, "Id", line.rate.value)
         _add_text(aliquot, "BaseImp", format_amount(line.base))
         _add_text(aliquot, "Importe", format_amount(line.amount))
+
+
+def _add_optionals(parent: etree._Element, voucher: VoucherRequest) -> None:
+    optionals = etree.SubElement(parent, _name("Opcionales"))
+    for optional in voucher.optionals:
+        element = etree.SubElement(optionals, _name("Opcional"))
+        _add_text(element, "Id", optional.optional_id.value)
+        _add_text(element, "Valor", optional.value)
 
 
 def _name(tag: str) -> etree.QName:

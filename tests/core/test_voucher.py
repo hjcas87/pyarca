@@ -14,12 +14,16 @@ from pyarca.core.voucher import (
     Tribute,
     VatLine,
     VoucherDefect,
+    VoucherOptional,
     VoucherRequest,
 )
 from pyarca.core.wsfe_codes import (
+    AnnulmentCode,
     Concept,
     DocumentType,
+    OptionalId,
     ReceiverVatCondition,
+    TransferMode,
     TributeType,
     VatRate,
     VoucherType,
@@ -526,4 +530,61 @@ def test_a_payment_due_before_the_voucher_date_is_rejected() -> None:
 
     assert _defect_of(lambda: _invoice_b(service_period=period)) == (
         VoucherDefect.PAYMENT_DUE_BEFORE_VOUCHER_DATE
+    )
+
+
+VALID_CBU = "0110012300000012345678"
+
+
+@pytest.mark.parametrize(
+    ("optional_id", "value"),
+    [
+        (OptionalId.CBU, VALID_CBU),
+        (OptionalId.CBU_ALIAS, "MI.ALIAS.CBU"),
+        (OptionalId.TRANSFER_MODE, TransferMode.OPEN_CIRCULATION_SYSTEM),
+        (OptionalId.TRANSFER_MODE, "ADC"),
+        (OptionalId.ANNULMENT, AnnulmentCode.ANNULMENT),
+        (OptionalId.ANNULMENT, "N"),
+        (OptionalId.COMMERCIAL_REFERENCE, "OC-2026-0001"),
+    ],
+)
+def test_an_optional_with_a_value_arca_accepts_is_built(
+    optional_id: OptionalId, value: str
+) -> None:
+    assert VoucherOptional(optional_id=optional_id, value=value).value == value
+
+
+@pytest.mark.parametrize(
+    ("optional_id", "value", "defect"),
+    [
+        (OptionalId.CBU, "123", VoucherDefect.CBU_INVALID),
+        (OptionalId.CBU, "0" * 21 + "x", VoucherDefect.CBU_INVALID),
+        (OptionalId.CBU_ALIAS, "short", VoucherDefect.CBU_ALIAS_INVALID),
+        (OptionalId.CBU_ALIAS, "A" * 21, VoucherDefect.CBU_ALIAS_INVALID),
+        (OptionalId.CBU_ALIAS, "has space", VoucherDefect.CBU_ALIAS_INVALID),
+        (OptionalId.TRANSFER_MODE, "XYZ", VoucherDefect.TRANSFER_MODE_INVALID),
+        (OptionalId.ANNULMENT, "X", VoucherDefect.ANNULMENT_CODE_INVALID),
+        (OptionalId.COMMERCIAL_REFERENCE, "", VoucherDefect.COMMERCIAL_REFERENCE_INVALID),
+        (OptionalId.COMMERCIAL_REFERENCE, "R" * 51, VoucherDefect.COMMERCIAL_REFERENCE_INVALID),
+    ],
+)
+def test_an_optional_with_a_value_arca_would_refuse_is_rejected(
+    optional_id: OptionalId, value: str, defect: VoucherDefect
+) -> None:
+    assert _defect_of(lambda: VoucherOptional(optional_id=optional_id, value=value)) == defect
+
+
+def _reference(value: str) -> VoucherOptional:
+    return VoucherOptional(optional_id=OptionalId.COMMERCIAL_REFERENCE, value=value)
+
+
+def test_a_voucher_may_carry_several_commercial_references() -> None:
+    request = _invoice_b(optionals=(_reference("OC-1"), _reference("OC-2")))
+
+    assert [optional.value for optional in request.optionals] == ["OC-1", "OC-2"]
+
+
+def test_a_commercial_reference_repeated_with_the_same_value_is_rejected() -> None:
+    assert _defect_of(lambda: _invoice_b(optionals=(_reference("OC-1"), _reference("OC-1")))) == (
+        VoucherDefect.OPTIONAL_DUPLICATED
     )
