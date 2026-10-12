@@ -31,6 +31,19 @@ SINGLE_VOUCHER_COUNT = 1
 NO_TRIBUTES = Decimal(0)
 
 
+class WsfeOperation(StrEnum):
+    """The WSFE operations pyarca calls; each is also the tail of its SOAPAction."""
+
+    AUTHORIZE = "FECAESolicitar"
+    LAST_AUTHORIZED = "FECompUltimoAutorizado"
+    CONSULT = "FECompConsultar"
+
+
+def soap_action(operation: WsfeOperation) -> str:
+    """Return the SOAPAction ARCA expects for `operation`."""
+    return f"{WSFE_NAMESPACE}{operation}"
+
+
 def build_authorize_request(
     *, ticket: AccessTicket, cuit: int, voucher: VoucherRequest, voucher_number: int
 ) -> bytes:
@@ -49,7 +62,7 @@ def build_authorize_request(
         InvalidVoucherError: If `voucher_number` is outside the range ARCA accepts.
     """
     _check_voucher_number(voucher_number)
-    envelope, operation = _start_request("FECAESolicitar", ticket=ticket, cuit=cuit)
+    envelope, operation = _start_request(WsfeOperation.AUTHORIZE, ticket=ticket, cuit=cuit)
     request = etree.SubElement(operation, _name("FeCAEReq"))
     header = etree.SubElement(request, _name("FeCabReq"))
     _add_text(header, "CantReg", SINGLE_VOUCHER_COUNT)
@@ -74,7 +87,7 @@ def build_last_authorized_request(
     Returns:
         The SOAP envelope as UTF-8 XML bytes.
     """
-    envelope, operation = _start_request("FECompUltimoAutorizado", ticket=ticket, cuit=cuit)
+    envelope, operation = _start_request(WsfeOperation.LAST_AUTHORIZED, ticket=ticket, cuit=cuit)
     _add_text(operation, "PtoVta", point_of_sale)
     _add_text(operation, "CbteTipo", voucher_type.value)
     return _serialize(envelope)
@@ -104,7 +117,7 @@ def build_consult_request(
         InvalidVoucherError: If `voucher_number` is outside the range ARCA accepts.
     """
     _check_voucher_number(voucher_number)
-    envelope, operation = _start_request("FECompConsultar", ticket=ticket, cuit=cuit)
+    envelope, operation = _start_request(WsfeOperation.CONSULT, ticket=ticket, cuit=cuit)
     query = etree.SubElement(operation, _name("FeCompConsReq"))
     _add_text(query, "CbteTipo", voucher_type.value)
     _add_text(query, "CbteNro", voucher_number)
@@ -118,14 +131,14 @@ def _check_voucher_number(voucher_number: int) -> None:
 
 
 def _start_request(
-    operation: str, *, ticket: AccessTicket, cuit: int
+    operation: WsfeOperation, *, ticket: AccessTicket, cuit: int
 ) -> tuple[etree._Element, etree._Element]:
     envelope = etree.Element(
         etree.QName(SOAP_ENVELOPE_NAMESPACE, "Envelope"),
         nsmap={"soapenv": SOAP_ENVELOPE_NAMESPACE, "ar": WSFE_NAMESPACE},
     )
     body = etree.SubElement(envelope, etree.QName(SOAP_ENVELOPE_NAMESPACE, "Body"))
-    element = etree.SubElement(body, _name(operation))
+    element = etree.SubElement(body, _name(operation.value))
     _add_auth(element, ticket=ticket, cuit=cuit)
     return envelope, element
 

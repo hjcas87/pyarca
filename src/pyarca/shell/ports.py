@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from pyarca.core.wsaa import AccessTicket
+    from pyarca.core.wsaa import AccessTicket, Service
     from pyarca.shell.token_store import TicketKey
 
 
@@ -44,3 +44,10 @@ class TokenStore(Protocol):
 
     def save(self, key: "TicketKey", ticket: "AccessTicket") -> None:
         """Save `ticket` for `key`, replacing the previous one."""
+
+
+class TicketProvider(Protocol):
+    """Hands out a valid access ticket for a service, logging in only when needed."""
+
+    def get_access_ticket(self, service: "Service") -> "AccessTicket":
+        """Return a valid access ticket for `service`."""
