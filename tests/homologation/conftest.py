@@ -1,4 +1,5 @@
 import os
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,6 +23,7 @@ STATE_DIRECTORY = Path(__file__).parents[2] / ".homologation"
 HOMOLOGATION_WSAA_URL = "https://wsaahomo.afip.gov.ar/ws/services/LoginCms"
 HOMOLOGATION_WSFE_URL = "https://wswhomo.afip.gov.ar/wsfev1/service.asmx"
 HOMOLOGATION_URLS = frozenset({HOMOLOGATION_WSAA_URL, HOMOLOGATION_WSFE_URL})
+SECRET_ELEMENT = re.compile(rb"(<(?:\w+:)?(Token|Sign)>)[^<]*(</)")
 
 
 @dataclass(frozen=True)
@@ -46,6 +48,10 @@ class GuardedTransport:
 
     def close(self) -> None:
         self.inner.close()
+
+
+def strip_secrets(document: bytes) -> bytes:
+    return SECRET_ELEMENT.sub(rb"\1REDACTED\3", document)
 
 
 def _subject_names_cuit(certificate: x509.Certificate, cuit: str) -> bool:

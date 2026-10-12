@@ -7,7 +7,6 @@ PYARCA_HOMOLOGATION_VOUCHER_TYPE (6 for Factura B, 11 for Factura C, default 11)
 """
 
 import os
-import re
 from collections.abc import Callable
 from datetime import date, timedelta, timezone
 from decimal import Decimal
@@ -34,6 +33,7 @@ from .conftest import (
     STATE_DIRECTORY,
     GuardedTransport,
     HomologationIdentity,
+    strip_secrets,
 )
 
 POINT_OF_SALE_ENV = "PYARCA_HOMOLOGATION_POINT_OF_SALE"
@@ -43,7 +43,6 @@ DEFAULT_VOUCHER_TYPE = VoucherType.INVOICE_C
 ARGENTINA = timezone(timedelta(hours=-3))
 RECORD_DIRECTORY = STATE_DIRECTORY / "last_authorization"
 CAE_LENGTH = 14
-SECRET_ELEMENT = re.compile(rb"(<(?:\w+:)?(Token|Sign)>)[^<]*(</)")
 
 
 def _invoice_c(*, point_of_sale: int, voucher_date: date) -> VoucherRequest:
@@ -92,10 +91,6 @@ VOUCHERS: dict[VoucherType, Callable[..., VoucherRequest]] = {
 }
 
 
-def _strip_secrets(document: bytes) -> bytes:
-    return SECRET_ELEMENT.sub(rb"\1REDACTED\3", document)
-
-
 @pytest.mark.homologation
 def test_authorize_an_invoice_to_a_final_consumer_obtains_a_cae(
     identity: HomologationIdentity, token_store: FileTokenStore, transport: GuardedTransport
@@ -138,5 +133,5 @@ def _record_exchange(transport: GuardedTransport) -> None:
     _, action, request, response = sent[-1]
     RECORD_DIRECTORY.mkdir(parents=True, exist_ok=True)
     name = action.rpartition("/")[2]
-    (RECORD_DIRECTORY / f"{name}_request.xml").write_bytes(_strip_secrets(request))
+    (RECORD_DIRECTORY / f"{name}_request.xml").write_bytes(strip_secrets(request))
     (RECORD_DIRECTORY / f"{name}_response.xml").write_bytes(response)
