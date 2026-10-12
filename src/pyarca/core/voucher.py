@@ -563,6 +563,10 @@ def _is_dated_in_a_later_month(associated_date: date | None, note_date: date) ->
 def _check_tributes(request: VoucherRequest) -> None:
     if request.tributes and request.tributes_total == 0:
         raise InvalidVoucherError(VoucherDefect.TRIBUTES_WITHOUT_AMOUNT)
+    # Developer manual, error 10042: FCE vouchers describe every tribute, whatever its type.
+    undescribed = any(not tribute.description for tribute in request.tributes)
+    if request.voucher_type in FCE_TYPES and undescribed:
+        raise InvalidVoucherError(VoucherDefect.TRIBUTE_DESCRIPTION_REQUIRED)
 
 
 def _check_optionals(request: VoucherRequest) -> None:

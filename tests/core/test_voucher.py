@@ -905,3 +905,20 @@ def test_an_fce_note_cannot_be_issued_to_the_not_categorized_receiver() -> None:
     assert _defect_of(lambda: make(document_number=23_000_000_000)) == (
         VoucherDefect.FCE_RECEIVER_NOT_ALLOWED
     )
+
+
+def test_an_fce_voucher_requires_every_tribute_to_be_described() -> None:
+    undescribed = _tribute(description=None)
+
+    assert _defect_of(
+        lambda: _fce_invoice(
+            VoucherType.FCE_INVOICE_B,
+            tributes=(undescribed,),
+            total=Decimal("124.00"),
+        )
+    ) == (VoucherDefect.TRIBUTE_DESCRIPTION_REQUIRED)
+    described = _tribute(description="Percepcion IIBB")
+    request = _fce_invoice(
+        VoucherType.FCE_INVOICE_B, tributes=(described,), total=Decimal("124.00")
+    )
+    assert request.tributes == (described,)
