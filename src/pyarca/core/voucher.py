@@ -55,7 +55,25 @@ SUPPORTED_VOUCHER_CLASSES: dict[VoucherType, VoucherClass] = {
     VoucherType.INVOICE_C: VoucherClass.C,
     VoucherType.DEBIT_NOTE_C: VoucherClass.C,
     VoucherType.CREDIT_NOTE_C: VoucherClass.C,
+    VoucherType.FCE_INVOICE_A: VoucherClass.A,
+    VoucherType.FCE_INVOICE_B: VoucherClass.B,
+    VoucherType.FCE_INVOICE_C: VoucherClass.C,
 }
+
+FCE_INVOICE_TYPES = frozenset(
+    {VoucherType.FCE_INVOICE_A, VoucherType.FCE_INVOICE_B, VoucherType.FCE_INVOICE_C}
+)
+FCE_TYPES = FCE_INVOICE_TYPES
+# Developer manual, error 10178: DocNro 23000000000 (No Categorizado) is refused for FCE.
+FCE_REFUSED_RECEIVER_DOCUMENT_NUMBER = 23_000_000_000
+FCE_ONLY_OPTIONALS = frozenset(
+    {
+        OptionalId.ANNULMENT,
+        OptionalId.TRANSFER_MODE,
+        OptionalId.CBU,
+        OptionalId.CBU_ALIAS,
+    }
+)
 
 _ASSOCIABLE_TO_NOTES_A = frozenset(
     {
@@ -93,7 +111,14 @@ ASSOCIABLE_VOUCHER_TYPES: dict[VoucherType, frozenset[VoucherType]] = {
 }
 
 # Error 10061 does not apply to notes: a partial note may state its VAT bases proportionally.
-VAT_BASE_CHECKED_TYPES = frozenset({VoucherType.INVOICE_A, VoucherType.INVOICE_B})
+VAT_BASE_CHECKED_TYPES = frozenset(
+    {
+        VoucherType.INVOICE_A,
+        VoucherType.INVOICE_B,
+        VoucherType.FCE_INVOICE_A,
+        VoucherType.FCE_INVOICE_B,
+    }
+)
 
 ALLOWED_RECEIVER_CONDITIONS: dict[VoucherClass, frozenset[ReceiverVatCondition]] = {
     VoucherClass.A: frozenset(
@@ -128,6 +153,27 @@ ALLOWED_RECEIVER_CONDITIONS: dict[VoucherClass, frozenset[ReceiverVatCondition]]
             ReceiverVatCondition.SOCIAL_MONOTAX,
             ReceiverVatCondition.NOT_SUBJECT_TO_VAT,
             ReceiverVatCondition.PROMOTED_INDEPENDENT_MONOTAX,
+        }
+    ),
+}
+
+# Credit invoices take fewer receiver conditions than the ordinary vouchers of their letter.
+FCE_RECEIVER_CONDITIONS: dict[VoucherClass, frozenset[ReceiverVatCondition]] = {
+    VoucherClass.A: frozenset(
+        {ReceiverVatCondition.REGISTERED_COMPANY, ReceiverVatCondition.MONOTAX}
+    ),
+    VoucherClass.B: frozenset(
+        {
+            ReceiverVatCondition.REGISTERED_COMPANY,
+            ReceiverVatCondition.EXEMPT,
+            ReceiverVatCondition.MONOTAX,
+        }
+    ),
+    VoucherClass.C: frozenset(
+        {
+            ReceiverVatCondition.REGISTERED_COMPANY,
+            ReceiverVatCondition.EXEMPT,
+            ReceiverVatCondition.MONOTAX,
         }
     ),
 }
@@ -172,6 +218,12 @@ class VoucherDefect(StrEnum):
     ANNULMENT_CODE_INVALID = "annulment_code_invalid"
     COMMERCIAL_REFERENCE_INVALID = "commercial_reference_invalid"
     OPTIONAL_DUPLICATED = "optional_duplicated"
+    OPTIONAL_NOT_ALLOWED = "optional_not_allowed"
+    CBU_REQUIRED = "cbu_required"
+    TRANSFER_MODE_REQUIRED = "transfer_mode_required"
+    PAYMENT_DUE_REQUIRED = "payment_due_required"
+    PAYMENT_DUE_GIVEN_TWICE = "payment_due_given_twice"
+    FCE_RECEIVER_NOT_ALLOWED = "fce_receiver_not_allowed"
 
 
 class InvalidVoucherError(ValueError):
@@ -334,6 +386,14 @@ class VoucherRequest:
     service_period: ServicePeriod | None = None
     settles_in_foreign_currency: bool | None = None
     optionals: tuple[VoucherOptional, ...] = ()
+    payment_due_date: date | None = None
+
+    @property
+    def payment_due(self) -> date | None:
+        """Return `FchVtoPago`: when the payment falls due, if the voucher states it."""
+        if self.service_period is not None:
+            return self.service_period.payment_due
+        return self.payment_due_date
 
     @property
     def tributes_total(self) -> Decimal:
@@ -358,6 +418,7 @@ class VoucherRequest:
         _check_associated_vouchers(self)
         _check_tributes(self)
         _check_optionals(self)
+        _check_fce(self)
         _check_total(self)
 
 
@@ -379,18 +440,23 @@ def _check_currency(request: VoucherRequest) -> None:
 
 def _check_service_period(request: VoucherRequest) -> None:
     period = request.service_period
-    if period is None:
-        if request.concept != Concept.PRODUCTS:
-            raise InvalidVoucherError(VoucherDefect.SERVICE_PERIOD_REQUIRED)
-        return
-    if period.payment_due < request.voucher_date:
+    if period is None and request.concept != Concept.PRODUCTS:
+        raise InvalidVoucherError(VoucherDefect.SERVICE_PERIOD_REQUIRED)
+    if period is not None and request.payment_due_date is not None:
+        raise InvalidVoucherError(VoucherDefect.PAYMENT_DUE_GIVEN_TWICE)
+    payment_due = request.payment_due
+    if payment_due is not None and payment_due < request.voucher_date:
         raise InvalidVoucherError(VoucherDefect.PAYMENT_DUE_BEFORE_VOUCHER_DATE)
 
 
 def _check_receiver(request: VoucherRequest) -> None:
     voucher_class = SUPPORTED_VOUCHER_CLASSES[request.voucher_type]
-    if request.receiver_vat_condition not in ALLOWED_RECEIVER_CONDITIONS[voucher_class]:
+    is_fce = request.voucher_type in FCE_TYPES
+    allowed = FCE_RECEIVER_CONDITIONS if is_fce else ALLOWED_RECEIVER_CONDITIONS
+    if request.receiver_vat_condition not in allowed[voucher_class]:
         raise InvalidVoucherError(VoucherDefect.RECEIVER_CONDITION_NOT_ALLOWED)
+    if is_fce and request.document_number == FCE_REFUSED_RECEIVER_DOCUMENT_NUMBER:
+        raise InvalidVoucherError(VoucherDefect.FCE_RECEIVER_NOT_ALLOWED)
     is_final_consumer = request.document_type == DocumentType.FINAL_CONSUMER
     if is_final_consumer and request.document_number != FINAL_CONSUMER_DOCUMENT_NUMBER:
         raise InvalidVoucherError(VoucherDefect.FINAL_CONSUMER_DOCUMENT_NUMBER)
@@ -477,6 +543,32 @@ def _check_optionals(request: VoucherRequest) -> None:
         raise InvalidVoucherError(VoucherDefect.OPTIONAL_DUPLICATED)
 
 
+def _check_fce(request: VoucherRequest) -> None:
+    FCE_RULES.get(request.voucher_type, _check_not_fce)(request)
+
+
+def _check_not_fce(request: VoucherRequest) -> None:
+    _forbid(request, FCE_ONLY_OPTIONALS)
+
+
+def _check_fce_invoice(request: VoucherRequest) -> None:
+    _require(request, OptionalId.CBU, VoucherDefect.CBU_REQUIRED)
+    _require(request, OptionalId.TRANSFER_MODE, VoucherDefect.TRANSFER_MODE_REQUIRED)
+    _forbid(request, frozenset({OptionalId.ANNULMENT}))
+    if request.payment_due is None:
+        raise InvalidVoucherError(VoucherDefect.PAYMENT_DUE_REQUIRED)
+
+
+def _require(request: VoucherRequest, optional_id: OptionalId, defect: VoucherDefect) -> None:
+    if all(optional.optional_id != optional_id for optional in request.optionals):
+        raise InvalidVoucherError(defect)
+
+
+def _forbid(request: VoucherRequest, optional_ids: frozenset[OptionalId]) -> None:
+    if any(optional.optional_id in optional_ids for optional in request.optionals):
+        raise InvalidVoucherError(VoucherDefect.OPTIONAL_NOT_ALLOWED)
+
+
 def _check_total(request: VoucherRequest) -> None:
     parts = (
         request.non_taxed
@@ -494,3 +586,7 @@ CLASS_RULES: dict[VoucherClass, Callable[[VoucherRequest], None]] = {
     VoucherClass.B: _check_itemized_vat,
     VoucherClass.C: _check_invoice_c_amounts,
 }
+
+FCE_RULES: dict[VoucherType, Callable[[VoucherRequest], None]] = dict.fromkeys(
+    FCE_INVOICE_TYPES, _check_fce_invoice
+)

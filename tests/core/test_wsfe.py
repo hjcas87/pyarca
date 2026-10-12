@@ -89,6 +89,17 @@ def test_an_invoice_a_request_states_its_aliquots_and_tributes_in_the_order_arca
     assert _canonical(request) == _canonical(expected)
 
 
+def test_an_fce_invoice_request_states_its_payment_due_date_and_optionals_in_order(
+    fce_invoice_c: VoucherRequest,
+) -> None:
+    request = build_authorize_request(
+        ticket=TICKET, cuit=CUIT, voucher=fce_invoice_c, voucher_number=VOUCHER_NUMBER
+    )
+
+    expected = (FIXTURES / "authorize_request_fce_invoice_c.xml").read_bytes()
+    assert _canonical(request) == _canonical(expected)
+
+
 def test_a_credit_note_carries_the_point_of_sale_of_the_voucher_it_cancels(
     credit_note_c: VoucherRequest,
 ) -> None:
