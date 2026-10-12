@@ -20,6 +20,8 @@ from pyarca.shell.token_store import TicketKey
 # built with it is in flight.
 TICKET_SAFETY_MARGIN = timedelta(minutes=5)
 
+WSAA_SOAP_ACTION = ""
+
 
 class WsaaClient:
     """Obtains access tickets from WSAA and reuses the ones already stored."""
@@ -81,6 +83,7 @@ class WsaaClient:
         response = self._transport.post(
             url=WSAA_ENDPOINTS[self._environment],
             body=build_login_cms_request(self._signer.sign(request)),
+            soap_action=WSAA_SOAP_ACTION,
         )
         return parse_login_cms_response(response)
 
