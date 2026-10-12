@@ -18,7 +18,6 @@ from pyarca.core.voucher import (
 )
 from pyarca.core.wsaa import AccessTicket
 from pyarca.core.wsfe import (
-    ArcaMessage,
     AuthorizationResult,
     build_authorize_request,
     build_consult_request,
@@ -28,6 +27,7 @@ from pyarca.core.wsfe import (
     parse_last_authorized_response,
 )
 from pyarca.core.wsfe_codes import Concept, DocumentType, OptionalId, TributeType, VoucherType
+from pyarca.core.wsfe_xml import ArcaMessage
 
 FIXTURES = Path(__file__).parent / "fixtures/wsfe"
 CUIT = 20111111112

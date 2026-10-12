@@ -5,12 +5,12 @@ from enum import StrEnum
 
 from pyarca.core.voucher import VoucherRequest
 from pyarca.core.wsfe import (
-    ArcaMessage,
     ConsultedVoucher,
     VoucherAuthorization,
     VoucherConsultation,
 )
 from pyarca.core.wsfe_codes import ArcaErrorCode
+from pyarca.core.wsfe_xml import ArcaMessage
 
 
 class VoucherConflictField(StrEnum):
