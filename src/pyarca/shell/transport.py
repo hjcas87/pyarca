@@ -12,7 +12,6 @@ WRITE_TIMEOUT_SECONDS = 10.0
 POOL_TIMEOUT_SECONDS = 10.0
 
 SOAP_CONTENT_TYPE = "text/xml; charset=utf-8"
-EMPTY_SOAP_ACTION = '""'
 
 # SOAP 1.1 carries faults in the body of a 500 response.
 SOAP_ANSWER_STATUSES = frozenset({HTTPStatus.OK, HTTPStatus.INTERNAL_SERVER_ERROR})
@@ -54,7 +53,7 @@ class HttpxTransport(Transport):
         """Release the HTTP connections."""
         self._client.close()
 
-    def post(self, *, url: str, body: bytes) -> bytes:
+    def post(self, *, url: str, body: bytes, soap_action: str) -> bytes:
         """Post `body` to `url` and return the body of the answer, including SOAP faults.
 
         Raises:
@@ -66,7 +65,7 @@ class HttpxTransport(Transport):
             response = self._client.post(
                 url,
                 content=body,
-                headers={"Content-Type": SOAP_CONTENT_TYPE, "SOAPAction": EMPTY_SOAP_ACTION},
+                headers={"Content-Type": SOAP_CONTENT_TYPE, "SOAPAction": f'"{soap_action}"'},
             )
         except (httpx.ConnectError, httpx.ConnectTimeout) as error:
             raise RequestNotSentError from error

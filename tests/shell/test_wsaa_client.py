@@ -51,11 +51,13 @@ class FakeClock:
 class FakeTransport:
     response: bytes
     posts: list[tuple[str, bytes]] = field(default_factory=list)
+    soap_actions: list[str] = field(default_factory=list)
     on_post: list[AccessTicket] = field(default_factory=list)
     store: InMemoryTokenStore | None = None
 
-    def post(self, *, url: str, body: bytes) -> bytes:
+    def post(self, *, url: str, body: bytes, soap_action: str) -> bytes:
         self.posts.append((url, body))
+        self.soap_actions.append(soap_action)
         if self.store is not None and self.on_post:
             self.store.save(KEY, self.on_post[0])
         return self.response
@@ -85,6 +87,7 @@ def test_login_signs_the_request_sends_it_and_stores_the_ticket() -> None:
     assert transport.posts == [
         (WSAA_ENDPOINTS[Environment.HOMOLOGATION], build_login_cms_request(signed_request))
     ]
+    assert transport.soap_actions == [""]
     assert ticket.expires_at == TICKET_EXPIRATION
     assert store.get(KEY) == ticket
 

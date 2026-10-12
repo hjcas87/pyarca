@@ -22,8 +22,11 @@ class Signer(Protocol):
 class Transport(Protocol):
     """Sends a SOAP request and returns the response body."""
 
-    def post(self, *, url: str, body: bytes) -> bytes:
-        """Post `body` to `url` and return the body of the answer, including SOAP faults."""
+    def post(self, *, url: str, body: bytes, soap_action: str) -> bytes:
+        """Post `body` to `url` and return the body of the answer, including SOAP faults.
+
+        `soap_action` is the operation's SOAPAction without quotes; WSAA's is empty.
+        """
 
 
 class Clock(Protocol):

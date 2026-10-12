@@ -1,4 +1,4 @@
-"""WSAA endpoints per environment. WSDLs are never fetched at runtime (ADR 0003)."""
+"""WSAA and WSFE endpoints per environment. WSDLs are never fetched at runtime (ADR 0003)."""
 
 from enum import StrEnum
 
@@ -13,4 +13,9 @@ class Environment(StrEnum):
 WSAA_ENDPOINTS: dict[Environment, str] = {
     Environment.HOMOLOGATION: "https://wsaahomo.afip.gov.ar/ws/services/LoginCms",
     Environment.PRODUCTION: "https://wsaa.afip.gov.ar/ws/services/LoginCms",
+}
+
+WSFE_ENDPOINTS: dict[Environment, str] = {
+    Environment.HOMOLOGATION: "https://wswhomo.afip.gov.ar/wsfev1/service.asmx",
+    Environment.PRODUCTION: "https://servicios1.afip.gov.ar/wsfev1/service.asmx",
 }
