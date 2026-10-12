@@ -10,6 +10,7 @@ from pyarca.core.amounts import AmountDefect, InvalidAmountError
 from pyarca.core.voucher import (
     AssociatedVoucher,
     InvalidVoucherError,
+    ServicePeriod,
     Tribute,
     VatLine,
     VoucherDefect,
@@ -213,9 +214,6 @@ def test_a_final_consumer_must_carry_document_number_zero() -> None:
     ("overrides", "defect"),
     [
         ({"voucher_type": VoucherType.FCE_INVOICE_A}, VoucherDefect.UNSUPPORTED_VOUCHER_TYPE),
-        ({"concept": Concept.SERVICES}, VoucherDefect.UNSUPPORTED_CONCEPT),
-        ({"currency": "USD"}, VoucherDefect.UNSUPPORTED_CURRENCY),
-        ({"exchange_rate": Decimal(2)}, VoucherDefect.EXCHANGE_RATE_NOT_ONE),
     ],
 )
 def test_what_this_version_cannot_authorize_is_rejected(
@@ -441,3 +439,91 @@ def test_a_partial_note_a_may_state_vat_bases_that_do_not_add_up_to_its_net() ->
     )
 
     assert note.vat_lines == lines
+
+
+DOLLAR = "DOL"
+
+
+def test_a_voucher_in_foreign_currency_states_the_rate_to_pesos() -> None:
+    request = _invoice_b(currency=DOLLAR, exchange_rate=Decimal("1050.123456"))
+
+    assert request.exchange_rate == Decimal("1050.123456")
+
+
+def test_a_voucher_in_pesos_must_have_exchange_rate_one() -> None:
+    assert _defect_of(lambda: _invoice_b(exchange_rate=Decimal(2))) == (
+        VoucherDefect.EXCHANGE_RATE_NOT_ONE
+    )
+
+
+@pytest.mark.parametrize("currency", ["US", "DOLL", "dol", "D L"])
+def test_a_currency_code_that_is_not_three_letters_or_digits_is_rejected(currency: str) -> None:
+    assert _defect_of(lambda: _invoice_b(currency=currency, exchange_rate=Decimal(2))) == (
+        VoucherDefect.INVALID_CURRENCY_CODE
+    )
+
+
+@pytest.mark.parametrize("rate", [Decimal(0), Decimal("1.0000001")])
+def test_a_foreign_exchange_rate_arca_would_misread_is_rejected(rate: Decimal) -> None:
+    with pytest.raises(InvalidAmountError):
+        _invoice_b(currency=DOLLAR, exchange_rate=rate)
+
+
+@pytest.mark.parametrize("settles", [True, False])
+def test_a_foreign_currency_voucher_may_say_whether_it_is_settled_in_that_currency(
+    *, settles: bool
+) -> None:
+    request = _invoice_b(
+        currency=DOLLAR, exchange_rate=Decimal("1050.50"), settles_in_foreign_currency=settles
+    )
+
+    assert request.settles_in_foreign_currency is settles
+
+
+def test_a_voucher_in_pesos_cannot_say_it_is_settled_in_foreign_currency() -> None:
+    assert _defect_of(lambda: _invoice_b(settles_in_foreign_currency=False)) == (
+        VoucherDefect.FOREIGN_SETTLEMENT_WITH_PESOS
+    )
+
+
+SERVICE_PERIOD = ServicePeriod(
+    service_from=date(2026, 10, 1), service_to=date(2026, 10, 31), payment_due=date(2026, 11, 10)
+)
+
+
+@pytest.mark.parametrize("concept", [Concept.SERVICES, Concept.PRODUCTS_AND_SERVICES])
+def test_a_voucher_for_services_states_its_service_period(concept: Concept) -> None:
+    assert _invoice_b(concept=concept, service_period=SERVICE_PERIOD).service_period == (
+        SERVICE_PERIOD
+    )
+
+
+@pytest.mark.parametrize("concept", [Concept.SERVICES, Concept.PRODUCTS_AND_SERVICES])
+def test_a_voucher_for_services_without_its_period_is_rejected(concept: Concept) -> None:
+    assert _defect_of(lambda: _invoice_b(concept=concept)) == VoucherDefect.SERVICE_PERIOD_REQUIRED
+
+
+def test_a_voucher_for_products_may_state_a_payment_period_too() -> None:
+    assert _invoice_b(service_period=SERVICE_PERIOD).concept == Concept.PRODUCTS
+
+
+def test_a_service_period_that_ends_before_it_starts_is_rejected() -> None:
+    assert _defect_of(
+        lambda: ServicePeriod(
+            service_from=date(2026, 10, 31),
+            service_to=date(2026, 10, 1),
+            payment_due=date(2026, 11, 10),
+        )
+    ) == (VoucherDefect.SERVICE_PERIOD_REVERSED)
+
+
+def test_a_payment_due_before_the_voucher_date_is_rejected() -> None:
+    period = ServicePeriod(
+        service_from=date(2026, 10, 1),
+        service_to=date(2026, 10, 31),
+        payment_due=date(2026, 10, 11),
+    )
+
+    assert _defect_of(lambda: _invoice_b(service_period=period)) == (
+        VoucherDefect.PAYMENT_DUE_BEFORE_VOUCHER_DATE
+    )

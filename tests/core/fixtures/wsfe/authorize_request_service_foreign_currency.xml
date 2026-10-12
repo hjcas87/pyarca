@@ -1,0 +1,50 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Hand-written from the WSFEv1 developer manual (Factura B for services in dollars, settled in pesos) until homologation authorizes one. -->
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ar="http://ar.gov.afip.dif.FEV1/">
+  <soapenv:Body>
+    <ar:FECAESolicitar>
+      <ar:Auth>
+        <ar:Token>TOKEN</ar:Token>
+        <ar:Sign>SIGN</ar:Sign>
+        <ar:Cuit>20111111112</ar:Cuit>
+      </ar:Auth>
+      <ar:FeCAEReq>
+        <ar:FeCabReq>
+          <ar:CantReg>1</ar:CantReg>
+          <ar:PtoVta>1</ar:PtoVta>
+          <ar:CbteTipo>6</ar:CbteTipo>
+        </ar:FeCabReq>
+        <ar:FeDetReq>
+          <ar:FECAEDetRequest>
+            <ar:Concepto>2</ar:Concepto>
+            <ar:DocTipo>99</ar:DocTipo>
+            <ar:DocNro>0</ar:DocNro>
+            <ar:CbteDesde>7</ar:CbteDesde>
+            <ar:CbteHasta>7</ar:CbteHasta>
+            <ar:CbteFch>20261012</ar:CbteFch>
+            <ar:ImpTotal>121.00</ar:ImpTotal>
+            <ar:ImpTotConc>0.00</ar:ImpTotConc>
+            <ar:ImpNeto>100.00</ar:ImpNeto>
+            <ar:ImpOpEx>0.00</ar:ImpOpEx>
+            <ar:ImpTrib>0.00</ar:ImpTrib>
+            <ar:ImpIVA>21.00</ar:ImpIVA>
+            <ar:FchServDesde>20261001</ar:FchServDesde>
+            <ar:FchServHasta>20261031</ar:FchServHasta>
+            <ar:FchVtoPago>20261110</ar:FchVtoPago>
+            <ar:MonId>DOL</ar:MonId>
+            <ar:MonCotiz>1050.123456</ar:MonCotiz>
+            <ar:CanMisMonExt>N</ar:CanMisMonExt>
+            <ar:CondicionIVAReceptorId>5</ar:CondicionIVAReceptorId>
+            <ar:Iva>
+              <ar:AlicIva>
+                <ar:Id>5</ar:Id>
+                <ar:BaseImp>100.00</ar:BaseImp>
+                <ar:Importe>21.00</ar:Importe>
+              </ar:AlicIva>
+            </ar:Iva>
+          </ar:FECAEDetRequest>
+        </ar:FeDetReq>
+      </ar:FeCAEReq>
+    </ar:FECAESolicitar>
+  </soapenv:Body>
+</soapenv:Envelope>
