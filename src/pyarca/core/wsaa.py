@@ -1,7 +1,7 @@
 """Requests and responses of WSAA, ARCA's authentication service."""
 
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
@@ -80,6 +80,7 @@ class ResponseDefect(StrEnum):
     NOT_XML = "not_xml"
     DOCUMENT_TYPE = "document_type"
     MISSING_ELEMENT = "missing_element"
+    INVALID_TIME = "invalid_time"
 
 
 class MalformedResponseError(ValueError):
@@ -105,8 +106,8 @@ class UniqueIdOutOfRangeError(ValueError):
 class AccessTicket:
     """Credentials WSAA issues for one service, valid until `expires_at`."""
 
-    token: str
-    sign: str
+    token: str = field(repr=False)
+    sign: str = field(repr=False)
     expires_at: datetime
 
 
@@ -187,7 +188,7 @@ def parse_login_cms_response(response: bytes) -> AccessTicket:
     return AccessTicket(
         token=_required_text(ticket, "credentials/token"),
         sign=_required_text(ticket, "credentials/sign"),
-        expires_at=datetime.fromisoformat(_required_text(ticket, "header/expirationTime")),
+        expires_at=_required_time(ticket, "header/expirationTime"),
     )
 
 
@@ -204,7 +205,7 @@ def _parse_xml(document: bytes) -> etree._Element:
         root = etree.fromstring(document, parser=parser)
     except etree.XMLSyntaxError as error:
         raise MalformedResponseError(ResponseDefect.NOT_XML) from error
-    # SOAP 1.1 forbids document type declarations; one in a response can only be an attack.
+    # SOAP 1.1 forbids document type declarations, and entity expansion is how they are abused.
     if root.getroottree().docinfo.doctype:
         raise MalformedResponseError(ResponseDefect.DOCUMENT_TYPE)
     return root
@@ -212,9 +213,20 @@ def _parse_xml(document: bytes) -> etree._Element:
 
 def _required_text(element: etree._Element, path: str) -> str:
     text = element.findtext(path)
-    if text is None:
+    if text is None or not text.strip():
         raise MalformedResponseError(ResponseDefect.MISSING_ELEMENT, path)
     return text
+
+
+def _required_time(element: etree._Element, path: str) -> datetime:
+    text = _required_text(element, path)
+    try:
+        value = datetime.fromisoformat(text)
+    except ValueError as error:
+        raise MalformedResponseError(ResponseDefect.INVALID_TIME, path) from error
+    if value.utcoffset() is None:
+        raise MalformedResponseError(ResponseDefect.INVALID_TIME, path)
+    return value
 
 
 def _format_time(value: datetime) -> str:

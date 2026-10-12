@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta, timezone, tzinfo
+import re
+from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 from typing import override
 from zoneinfo import ZoneInfo
@@ -22,9 +23,9 @@ from pyarca.core.wsaa import (
 )
 
 BUENOS_AIRES = timezone(timedelta(hours=-3))
+FIXTURES = Path(__file__).parent / "fixtures/wsaa"
 # Hand-written from the example in the WSAA technical specification until a homologation
 # response is recorded.
-FIXTURES = Path(__file__).parent / "fixtures/wsaa"
 LOGIN_CMS_RESPONSE = (FIXTURES / "login_cms_response.xml").read_bytes()
 # Shaped after the Apache Axis faults WSAA returns; the code prefix is not in ARCA's documents.
 LOGIN_CMS_FAULT = (FIXTURES / "login_cms_fault.xml").read_bytes()
@@ -42,6 +43,14 @@ class _UnknownOffset(tzinfo):
     @override
     def tzname(self, dt: datetime | None, /) -> str | None:
         return None
+
+
+def _with_ticket_value(tag: bytes, value: bytes) -> bytes:
+    return re.sub(
+        rb"(&lt;" + tag + rb"&gt;)[^&]*(&lt;/" + tag + rb"&gt;)",
+        lambda match: match[1] + value + match[2],
+        LOGIN_CMS_RESPONSE,
+    )
 
 
 def test_login_ticket_request_asks_for_the_service_in_a_window_around_now() -> None:
@@ -140,14 +149,36 @@ def test_login_cms_response_becomes_an_access_ticket() -> None:
         LOGIN_CMS_RESPONSE.replace(b"&lt;token&gt;", b"&lt;other&gt;").replace(
             b"&lt;/token&gt;", b"&lt;/other&gt;"
         ),
+        _with_ticket_value(b"token", b"  "),
+        _with_ticket_value(b"sign", b""),
     ],
-    ids=["no ticket", "ticket without token"],
+    ids=["no ticket", "ticket without token", "blank token", "empty sign"],
 )
 def test_login_cms_response_without_a_ticket_is_rejected(response: bytes) -> None:
     with pytest.raises(MalformedResponseError) as error:
         parse_login_cms_response(response)
 
     assert error.value.defect == ResponseDefect.MISSING_ELEMENT
+
+
+@pytest.mark.parametrize(
+    "expiration",
+    [b"not a time", b"2026-09-25T09:00:02.105", b""],
+    ids=["unparseable", "no offset", "empty"],
+)
+def test_login_cms_response_with_an_unusable_expiration_is_rejected(expiration: bytes) -> None:
+    with pytest.raises(MalformedResponseError) as error:
+        parse_login_cms_response(_with_ticket_value(b"expirationTime", expiration))
+
+    assert error.value.element == "header/expirationTime"
+
+
+def test_access_ticket_repr_hides_the_credentials() -> None:
+    ticket = AccessTicket(
+        token="secret-token", sign="secret-sign", expires_at=datetime(2026, 9, 25, tzinfo=UTC)
+    )
+
+    assert "secret" not in repr(ticket)
 
 
 def test_login_cms_response_with_a_document_type_declaration_is_rejected(tmp_path: Path) -> None:
