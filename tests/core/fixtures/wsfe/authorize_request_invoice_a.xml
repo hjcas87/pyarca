@@ -1,0 +1,60 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Hand-written from example 1 of the WSFEv1 developer manual (Factura A, two VAT aliquots and one tribute) until homologation authorizes one. -->
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ar="http://ar.gov.afip.dif.FEV1/">
+  <soapenv:Body>
+    <ar:FECAESolicitar>
+      <ar:Auth>
+        <ar:Token>TOKEN</ar:Token>
+        <ar:Sign>SIGN</ar:Sign>
+        <ar:Cuit>20111111112</ar:Cuit>
+      </ar:Auth>
+      <ar:FeCAEReq>
+        <ar:FeCabReq>
+          <ar:CantReg>1</ar:CantReg>
+          <ar:PtoVta>1</ar:PtoVta>
+          <ar:CbteTipo>1</ar:CbteTipo>
+        </ar:FeCabReq>
+        <ar:FeDetReq>
+          <ar:FECAEDetRequest>
+            <ar:Concepto>1</ar:Concepto>
+            <ar:DocTipo>80</ar:DocTipo>
+            <ar:DocNro>20111111112</ar:DocNro>
+            <ar:CbteDesde>7</ar:CbteDesde>
+            <ar:CbteHasta>7</ar:CbteHasta>
+            <ar:CbteFch>20261012</ar:CbteFch>
+            <ar:ImpTotal>184.05</ar:ImpTotal>
+            <ar:ImpTotConc>0.00</ar:ImpTotConc>
+            <ar:ImpNeto>150.00</ar:ImpNeto>
+            <ar:ImpOpEx>0.00</ar:ImpOpEx>
+            <ar:ImpTrib>7.80</ar:ImpTrib>
+            <ar:ImpIVA>26.25</ar:ImpIVA>
+            <ar:MonId>PES</ar:MonId>
+            <ar:MonCotiz>1</ar:MonCotiz>
+            <ar:CondicionIVAReceptorId>1</ar:CondicionIVAReceptorId>
+            <ar:Tributos>
+              <ar:Tributo>
+                <ar:Id>99</ar:Id>
+                <ar:Desc>Impuesto Municipal Matanza</ar:Desc>
+                <ar:BaseImp>150.00</ar:BaseImp>
+                <ar:Alic>5.20</ar:Alic>
+                <ar:Importe>7.80</ar:Importe>
+              </ar:Tributo>
+            </ar:Tributos>
+            <ar:Iva>
+              <ar:AlicIva>
+                <ar:Id>5</ar:Id>
+                <ar:BaseImp>100.00</ar:BaseImp>
+                <ar:Importe>21.00</ar:Importe>
+              </ar:AlicIva>
+              <ar:AlicIva>
+                <ar:Id>4</ar:Id>
+                <ar:BaseImp>50.00</ar:BaseImp>
+                <ar:Importe>5.25</ar:Importe>
+              </ar:AlicIva>
+            </ar:Iva>
+          </ar:FECAEDetRequest>
+        </ar:FeDetReq>
+      </ar:FeCAEReq>
+    </ar:FECAESolicitar>
+  </soapenv:Body>
+</soapenv:Envelope>

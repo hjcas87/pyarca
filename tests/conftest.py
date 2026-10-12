@@ -8,11 +8,12 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import NameOID
 
-from pyarca.core.voucher import PESOS, PESOS_EXCHANGE_RATE, VatLine, VoucherRequest
+from pyarca.core.voucher import PESOS, PESOS_EXCHANGE_RATE, Tribute, VatLine, VoucherRequest
 from pyarca.core.wsfe_codes import (
     Concept,
     DocumentType,
     ReceiverVatCondition,
+    TributeType,
     VatRate,
     VoucherType,
 )
@@ -134,6 +135,39 @@ def invoice_c() -> VoucherRequest:
         exempt=Decimal(0),
         vat_total=Decimal(0),
         vat_lines=(),
+        currency=PESOS,
+        exchange_rate=PESOS_EXCHANGE_RATE,
+    )
+
+
+@pytest.fixture
+def invoice_a() -> VoucherRequest:
+    return VoucherRequest(
+        point_of_sale=1,
+        voucher_type=VoucherType.INVOICE_A,
+        concept=Concept.PRODUCTS,
+        document_type=DocumentType.CUIT,
+        document_number=20111111112,
+        receiver_vat_condition=ReceiverVatCondition.REGISTERED_COMPANY,
+        voucher_date=date(2026, 10, 12),
+        total=Decimal("184.05"),
+        non_taxed=Decimal(0),
+        net=Decimal("150.00"),
+        exempt=Decimal(0),
+        vat_total=Decimal("26.25"),
+        vat_lines=(
+            VatLine(rate=VatRate.RATE_21, base=Decimal("100.00"), amount=Decimal("21.00")),
+            VatLine(rate=VatRate.RATE_10_5, base=Decimal("50.00"), amount=Decimal("5.25")),
+        ),
+        tributes=(
+            Tribute(
+                tribute_type=TributeType.OTHER,
+                description="Impuesto Municipal Matanza",
+                base=Decimal("150.00"),
+                rate=Decimal("5.20"),
+                amount=Decimal("7.80"),
+            ),
+        ),
         currency=PESOS,
         exchange_rate=PESOS_EXCHANGE_RATE,
     )

@@ -11,6 +11,7 @@ from pyarca.core.wsfe_codes import (
     Concept,
     DocumentType,
     ReceiverVatCondition,
+    TributeType,
     VatRate,
     VoucherType,
 )
@@ -19,21 +20,35 @@ PESOS = "PES"
 PESOS_EXCHANGE_RATE = Decimal(1)
 FINAL_CONSUMER_DOCUMENT_NUMBER = 0
 MAX_VOUCHER_NUMBER = 99_999_999
+MIN_INVOICE_A_RECEIVER_CUIT = 20_000_000_000
+MAX_INVOICE_A_RECEIVER_CUIT = 60_000_000_000
+MAX_TRIBUTE_DESCRIPTION_LENGTH = 80
+TRIBUTE_RATE_INTEGER_DIGITS = 3
 
 
 class VoucherClass(StrEnum):
     """The letter of an invoice, which decides how VAT is stated."""
 
+    A = "A"
     B = "B"
     C = "C"
 
 
 SUPPORTED_VOUCHER_CLASSES: dict[VoucherType, VoucherClass] = {
+    VoucherType.INVOICE_A: VoucherClass.A,
     VoucherType.INVOICE_B: VoucherClass.B,
     VoucherType.INVOICE_C: VoucherClass.C,
 }
 
 ALLOWED_RECEIVER_CONDITIONS: dict[VoucherClass, frozenset[ReceiverVatCondition]] = {
+    VoucherClass.A: frozenset(
+        {
+            ReceiverVatCondition.REGISTERED_COMPANY,
+            ReceiverVatCondition.MONOTAX,
+            ReceiverVatCondition.SOCIAL_MONOTAX,
+            ReceiverVatCondition.PROMOTED_INDEPENDENT_MONOTAX,
+        }
+    ),
     VoucherClass.B: frozenset(
         {
             ReceiverVatCondition.EXEMPT,
@@ -72,6 +87,8 @@ class VoucherDefect(StrEnum):
     EXCHANGE_RATE_NOT_ONE = "exchange_rate_not_one"
     FINAL_CONSUMER_DOCUMENT_NUMBER = "final_consumer_document_number"
     RECEIVER_CONDITION_NOT_ALLOWED = "receiver_condition_not_allowed"
+    DOCUMENT_TYPE_NOT_ALLOWED = "document_type_not_allowed"
+    DOCUMENT_NUMBER_OUT_OF_RANGE = "document_number_out_of_range"
     VAT_REQUIRED = "vat_required"
     VAT_NOT_ALLOWED = "vat_not_allowed"
     NON_NET_AMOUNT_NOT_ALLOWED = "non_net_amount_not_allowed"
@@ -79,6 +96,10 @@ class VoucherDefect(StrEnum):
     VAT_BASE_MISMATCH = "vat_base_mismatch"
     TOTAL_MISMATCH = "total_mismatch"
     VOUCHER_NUMBER_OUT_OF_RANGE = "voucher_number_out_of_range"
+    TRIBUTES_WITHOUT_AMOUNT = "tributes_without_amount"
+    TRIBUTE_DESCRIPTION_REQUIRED = "tribute_description_required"
+    TRIBUTE_DESCRIPTION_TOO_LONG = "tribute_description_too_long"
+    TRIBUTE_RATE_OUT_OF_RANGE = "tribute_rate_out_of_range"
 
 
 class InvalidVoucherError(ValueError):
@@ -105,8 +126,36 @@ class VatLine:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class Tribute:
+    """One tax other than VAT stated on a voucher, such as a perception."""
+
+    tribute_type: TributeType
+    description: str | None
+    base: Decimal
+    rate: Decimal
+    amount: Decimal
+
+    def __post_init__(self) -> None:
+        """Reject a tribute ARCA cannot take as is.
+
+        Raises:
+            InvalidAmountError: If an amount does not fit ARCA's format.
+            InvalidVoucherError: If the description or the rate breaks ARCA's rules.
+        """
+        validate_amount("tribute.base", self.base)
+        validate_amount("tribute.rate", self.rate)
+        validate_amount("tribute.amount", self.amount)
+        if self.rate.adjusted() >= TRIBUTE_RATE_INTEGER_DIGITS:
+            raise InvalidVoucherError(VoucherDefect.TRIBUTE_RATE_OUT_OF_RANGE)
+        if self.tribute_type == TributeType.OTHER and not self.description:
+            raise InvalidVoucherError(VoucherDefect.TRIBUTE_DESCRIPTION_REQUIRED)
+        if len(self.description or "") > MAX_TRIBUTE_DESCRIPTION_LENGTH:
+            raise InvalidVoucherError(VoucherDefect.TRIBUTE_DESCRIPTION_TOO_LONG)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class VoucherRequest:
-    """A Factura B or C in pesos for products; the voucher number is chosen when it is sent."""
+    """A Factura A, B or C in pesos for products; the number is chosen when it is sent."""
 
     point_of_sale: int
     voucher_type: VoucherType
@@ -123,6 +172,12 @@ class VoucherRequest:
     vat_lines: tuple[VatLine, ...]
     currency: str
     exchange_rate: Decimal
+    tributes: tuple[Tribute, ...] = ()
+
+    @property
+    def tributes_total(self) -> Decimal:
+        """Return `ImpTrib`: the sum of the tribute amounts."""
+        return sum((tribute.amount for tribute in self.tributes), start=Decimal(0))
 
     def __post_init__(self) -> None:
         """Reject a voucher ARCA would refuse, naming the rule it breaks.
@@ -136,6 +191,7 @@ class VoucherRequest:
         _check_supported(self)
         _check_receiver(self)
         _check_class_rules(self)
+        _check_tributes(self)
         _check_total(self)
 
 
@@ -163,7 +219,15 @@ def _check_class_rules(request: VoucherRequest) -> None:
     CLASS_RULES[SUPPORTED_VOUCHER_CLASSES[request.voucher_type]](request)
 
 
-def _check_invoice_b_vat(request: VoucherRequest) -> None:
+def _check_invoice_a(request: VoucherRequest) -> None:
+    if request.document_type != DocumentType.CUIT:
+        raise InvalidVoucherError(VoucherDefect.DOCUMENT_TYPE_NOT_ALLOWED)
+    if not MIN_INVOICE_A_RECEIVER_CUIT <= request.document_number <= MAX_INVOICE_A_RECEIVER_CUIT:
+        raise InvalidVoucherError(VoucherDefect.DOCUMENT_NUMBER_OUT_OF_RANGE)
+    _check_itemized_vat(request)
+
+
+def _check_itemized_vat(request: VoucherRequest) -> None:
     if request.net > 0 and not request.vat_lines:
         raise InvalidVoucherError(VoucherDefect.VAT_REQUIRED)
     lines = request.vat_lines
@@ -182,13 +246,25 @@ def _check_invoice_c_amounts(request: VoucherRequest) -> None:
         raise InvalidVoucherError(VoucherDefect.NON_NET_AMOUNT_NOT_ALLOWED)
 
 
+def _check_tributes(request: VoucherRequest) -> None:
+    if request.tributes and request.tributes_total == 0:
+        raise InvalidVoucherError(VoucherDefect.TRIBUTES_WITHOUT_AMOUNT)
+
+
 def _check_total(request: VoucherRequest) -> None:
-    parts = request.non_taxed + request.net + request.exempt + request.vat_total
+    parts = (
+        request.non_taxed
+        + request.net
+        + request.exempt
+        + request.vat_total
+        + request.tributes_total
+    )
     if not amounts_match(parts, request.total):
         raise InvalidVoucherError(VoucherDefect.TOTAL_MISMATCH)
 
 
 CLASS_RULES: dict[VoucherClass, Callable[[VoucherRequest], None]] = {
-    VoucherClass.B: _check_invoice_b_vat,
+    VoucherClass.A: _check_invoice_a,
+    VoucherClass.B: _check_itemized_vat,
     VoucherClass.C: _check_invoice_c_amounts,
 }
