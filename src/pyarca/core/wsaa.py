@@ -7,8 +7,15 @@ from enum import StrEnum
 
 from lxml import etree
 
+from pyarca.core.soap import (
+    SOAP_ENVELOPE_NAMESPACE,
+    MalformedResponseError,
+    ResponseDefect,
+    parse_xml,
+    required_text,
+)
+
 LOGIN_TICKET_REQUEST_VERSION = "1.0"
-SOAP_ENVELOPE_NAMESPACE = "http://schemas.xmlsoap.org/soap/envelope/"
 WSAA_NAMESPACE = "http://wsaa.view.sua.dvadac.desein.afip.gov"
 MAX_UNIQUE_ID = 2**32 - 1
 
@@ -72,25 +79,6 @@ class NaiveTimeError(ValueError):
     def __init__(self) -> None:
         """Build the error."""
         super().__init__("the time must carry a timezone")
-
-
-class ResponseDefect(StrEnum):
-    """Why a response was rejected before reading its content."""
-
-    NOT_XML = "not_xml"
-    DOCUMENT_TYPE = "document_type"
-    MISSING_ELEMENT = "missing_element"
-    INVALID_TIME = "invalid_time"
-
-
-class MalformedResponseError(ValueError):
-    """A response does not have the structure the service documents."""
-
-    def __init__(self, defect: ResponseDefect, element: str | None = None) -> None:
-        """Build the error for a defect, naming the missing element when there is one."""
-        super().__init__(defect if element is None else f"{defect}: {element}")
-        self.defect = defect
-        self.element = element
 
 
 class UniqueIdOutOfRangeError(ValueError):
@@ -175,7 +163,7 @@ def parse_login_cms_response(response: bytes) -> AccessTicket:
         WsaaFaultError: If WSAA answered with a SOAP fault.
         MalformedResponseError: If the response is not a well-formed login ticket response.
     """
-    envelope = _parse_xml(response)
+    envelope = parse_xml(response)
     fault = envelope.find(f".//{{{SOAP_ENVELOPE_NAMESPACE}}}Fault")
     if fault is not None:
         raise _fault_error(fault)
@@ -184,10 +172,10 @@ def parse_login_cms_response(response: bytes) -> AccessTicket:
     if login_ticket is None:
         raise MalformedResponseError(ResponseDefect.MISSING_ELEMENT, "loginCmsReturn")
 
-    ticket = _parse_xml(login_ticket.encode())
+    ticket = parse_xml(login_ticket.encode())
     return AccessTicket(
-        token=_required_text(ticket, "credentials/token"),
-        sign=_required_text(ticket, "credentials/sign"),
+        token=required_text(ticket, "credentials/token"),
+        sign=required_text(ticket, "credentials/sign"),
         expires_at=_required_time(ticket, "header/expirationTime"),
     )
 
@@ -195,31 +183,12 @@ def parse_login_cms_response(response: bytes) -> AccessTicket:
 def _fault_error(fault: etree._Element) -> WsaaFaultError:
     # The fault code is a qualified name such as `ns1:coe.alreadyAuthenticated`; only its local
     # part identifies the error.
-    code = _required_text(fault, "faultcode").rpartition(":")[2]
+    code = required_text(fault, "faultcode").rpartition(":")[2]
     return WsaaFaultError(code=code, description=fault.findtext("faultstring", default=""))
 
 
-def _parse_xml(document: bytes) -> etree._Element:
-    parser = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False)
-    try:
-        root = etree.fromstring(document, parser=parser)
-    except etree.XMLSyntaxError as error:
-        raise MalformedResponseError(ResponseDefect.NOT_XML) from error
-    # SOAP 1.1 forbids document type declarations, and entity expansion is how they are abused.
-    if root.getroottree().docinfo.doctype:
-        raise MalformedResponseError(ResponseDefect.DOCUMENT_TYPE)
-    return root
-
-
-def _required_text(element: etree._Element, path: str) -> str:
-    text = element.findtext(path)
-    if text is None or not text.strip():
-        raise MalformedResponseError(ResponseDefect.MISSING_ELEMENT, path)
-    return text
-
-
 def _required_time(element: etree._Element, path: str) -> datetime:
-    text = _required_text(element, path)
+    text = required_text(element, path)
     try:
         value = datetime.fromisoformat(text)
     except ValueError as error:
