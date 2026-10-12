@@ -1,4 +1,5 @@
 from http import HTTPStatus
+from typing import override
 
 import httpx
 import pytest
@@ -78,3 +79,19 @@ def test_transport_tells_a_request_never_sent_from_a_lost_response(
 
     with pytest.raises(expected):
         transport.post(url=URL, body=b"<request/>")
+
+
+class _RecordingTransport(httpx.BaseTransport):
+    closed = False
+
+    @override
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_closing_the_transport_releases_the_http_connections() -> None:
+    recording = _RecordingTransport()
+
+    HttpxTransport(transport=recording).close()
+
+    assert recording.closed

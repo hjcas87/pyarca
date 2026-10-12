@@ -50,6 +50,10 @@ class HttpxTransport(Transport):
             ),
         )
 
+    def close(self) -> None:
+        """Release the HTTP connections."""
+        self._client.close()
+
     def post(self, *, url: str, body: bytes) -> bytes:
         """Post `body` to `url` and return the body of the answer, including SOAP faults.
 
